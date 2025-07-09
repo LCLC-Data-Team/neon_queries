@@ -1589,19 +1589,19 @@ class Queries(Audits):
         return df
 
     @clipboard_decorator
-    def isp_tracker(self, just_cm = True, summary_table = False, service_days_cutoff = 45):
+    def isp_tracker(self, cm_only = True, summary_table = False, service_days_cutoff = 45):
         '''
         Returns a table of client service plan statuses or a table summarizing overall plan completion.
 
         Parameters:
-            just_cm (Bool): if true, only looks at clients enrolled in case management. Defaults to True
+            cm_only (Bool): if true, only looks at clients enrolled in case management. Defaults to True
             summary_table (Bool): whether to return a summary table. Defaults to False
             service_days_cutoff: the day threshold at which a service plan ought to be complete. Defaults to 45 
     
         Examples:
             Get a full table of ISP statuses for all clients::
 
-                e.isp_tracker(just_cm=False)
+                e.isp_tracker(cm_only=False)
 
             Get the count of case management clients missing a service plan after 60 days::
 
@@ -1611,7 +1611,7 @@ class Queries(Audits):
             ISP Status (Individual or Grouped)
         '''
 
-        if just_cm == True:
+        if cm_only == True:
             prog_serv = 'service'
             base_table = f'''select participant_id, first_name, last_name, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
             (select participant_id, first_name, last_name, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
@@ -1619,7 +1619,7 @@ class Queries(Audits):
                 (select participant_id, {prog_serv}_type, max({prog_serv}_start) as {prog_serv}_start from {self.table}
                 where {prog_serv}_type = 'case management' group by participant_id, {prog_serv}_type) st 
             using(participant_id, {prog_serv}_type, {prog_serv}_start)) serv'''
-        if just_cm == False:
+        if cm_only == False:
             prog_serv = 'program'
             base_table = f'''select participant_id, first_name, last_name, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
             (select distinct participant_id, first_name, last_name, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
@@ -1946,12 +1946,12 @@ class Queries(Audits):
         return(df)
 
     @clipboard_decorator
-    def linkages_edu_employ(self, just_cm = True,first_n_months = None, ongoing = False, age_threshold = 18, new_client_threshold = 45, include_wfd = True):
+    def linkages_edu_employ(self, cm_only = True,first_n_months = None, ongoing = False, age_threshold = 18, new_client_threshold = 45, include_wfd = True):
         '''
         Counts the number of clients enrolled/employed by age group. 
 
         Parameters:
-            just_cm (Bool): Whether to only include clients enrolled in case management. Defaults to True
+            cm_only (Bool): Whether to only include clients enrolled in case management. Defaults to True
             first_n_months (optional, int): Only counts linkages in the first N months of program enrollment, usually 6 or 9. Defaults to None
             ongoing (Bool): Only include linkages with no end date. Defaults to False
             age_threshold (int): inclusive upper bound for 'school-aged' clients. Defaults to 18
@@ -1965,7 +1965,7 @@ class Queries(Audits):
 
             Get the number of clients currently enrolled/employed with an age cutoff of 19::
 
-                e.linkages_edu_employ(just_cm=False, ongoing=True, age_threshold=19)
+                e.linkages_edu_employ(cm_only=False, ongoing=True, age_threshold=19)
             
             Get the number of case management clients enrolled/employed excluding workforce development linkages::
 
@@ -1980,13 +1980,16 @@ class Queries(Audits):
         '''
 
         workforce = '|Workforce Development' if include_wfd else ''
+        if first_n_months:
+            start_date = 'service_start' if cm_only else 'program_start'
+            new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
         query = f'''
         with part as (
         select participant_id, 
         case when timestampdiff(year, birth_date, service_start) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, service_start) > {age_threshold} then 'adult' else 'missing' end as age_group, 
         program_start, service_start, case when datediff('2024-12-31', service_start) > {new_client_threshold} then 'cont' else 'new' end as newness 
         from {self.table}
-        {f"where service_type = 'Case Management'" if just_cm else ''}),
+        {f"where service_type = 'Case Management'" if cm_only else ''}),
         cust as(
         select participant_id, custody_status from neon.custody_status
         join (select participant_id, program_start, service_start,max(custody_status_date) as custody_status_date from part
@@ -2017,8 +2020,7 @@ class Queries(Audits):
         left join link_tally using(participant_id))
 
         select age_group, newness, custody_status, count(distinct participant_id) as total_clients,
-        {f'''count(distinct case when DATEDIFF({self.q_t2}, program_start) >= {first_n_months} * 30.5 
-        then participant_id else null end) as enrolled_for_{first_n_months},''' if first_n_months else ''}
+        {f"count(distinct case when DATEDIFF({self.q_t2}, {start_date}) >= {first_n_months} * 30.5 then participant_id else null end) as enrolled_for_{first_n_months}," if first_n_months else ''}
         count(distinct case when currently_enrolled = 'yes' then participant_id else null end) as began_enrolled,
         count(distinct case when edu_links > 0 then participant_id else null end) as school_links,
         count(distinct case when (currently_enrolled is null or currently_enrolled = 'no') and edu_links > 0 then participant_id else null end) as newly_enrolled,
@@ -2049,13 +2051,13 @@ class Queries(Audits):
         return(df)
 
     @clipboard_decorator
-    def linkages_monthly(self, lclc_initiated = True, just_cm = False):
+    def linkages_monthly(self, lclc_initiated = True, cm_only = False):
         '''
         Counts the number of clients linked in the current time frame, and in their first 3/6/9 months
 
         Parameters:
             lclc_initiated (Bool): Only look at linkages that LCLC initiated. Defaults to True
-            just_cm (Bool): Only look at clients receiving case management. Defaults to True
+            cm_only (Bool): Only look at clients receiving case management. Defaults to True
 
         Examples::
             Get the number of case management clients with lclc-initiated linkages in the current time period and their first 3/6/9 months::
@@ -2064,7 +2066,7 @@ class Queries(Audits):
 
             Get the number of all clients with linkages in the time period::
 
-                e.linkages_monthly(just_cm=True)
+                e.linkages_monthly(cm_only=True)
             
             Get the number of case management clients with linkages in the time periods, including client-initiated linkages::
 
@@ -2075,7 +2077,7 @@ class Queries(Audits):
         '''
 
 
-        service_statement = "where service_type = 'case management'" if just_cm else ''
+        service_statement = "where service_type = 'case management'" if cm_only else ''
         initiated_statement = "and client_initiated = 'no'" if lclc_initiated else ''
         
         query = f'''with parts as  (select distinct(participant_id), program_start from {self.table}
@@ -2159,14 +2161,14 @@ class Queries(Audits):
         return(df)
 
     @clipboard_decorator
-    def linkages_tally(self, lclc_initiated = True, just_cm = False, timeframe = True, distinct_clients = False, group_by = 'linkage_type',link_started = False, link_ongoing = False):
+    def linkages_tally(self, lclc_initiated = True, cm_only = False, timeframe = True, distinct_clients = False, group_by = 'linkage_type',link_started = False, link_ongoing = False):
         '''
         Flexible function designed to return linkage information grouped in some way
 
 
         Parameters:
             lclc_initiated (Bool): Only look at linkages that LCLC initiated. Defaults to True
-            just_cm (Bool): Only look at clients receiving case management. Defaults to True
+            cm_only (Bool): Only look at clients receiving case management. Defaults to True
             timeframe (Bool): Only include records with a linked_date in the timeframe. Defaults to True
             distinct_clients (Bool): Whether only one record should be counted per client. Defaults to False
             group_by (str): The column to group records by (linkage_type, internal_external, linkage_org). Defaults to 'linkage_type'
@@ -2180,7 +2182,7 @@ class Queries(Audits):
             
             Get the number of case management clients with an internal/external linkage at any time::
             
-                e.linkages_tally(just_cm=True, timeframe=False, distinct_clients=True, group_by='internal_external')
+                e.linkages_tally(cm_only=True, timeframe=False, distinct_clients=True, group_by='internal_external')
             
             Get the number of clients with a started linkage of each type in the timeframe::
 
@@ -2194,7 +2196,7 @@ class Queries(Audits):
             Linkage Information (Flexible)
         '''
 
-        service_statement = "where service_type = 'case management'" if just_cm else ''
+        service_statement = "where service_type = 'case management'" if cm_only else ''
         initiated_statement = "and client_initiated = 'no'" if lclc_initiated else ''
         
         parameters_list = [f'linked_date between {self.q_t1} and {self.q_t2}' if timeframe else None, 
