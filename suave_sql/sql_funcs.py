@@ -2190,7 +2190,6 @@ class Queries(Audits):
         workforce = '|Workforce Development' if include_wfd else ''
         if first_n_months:
             start_date = 'service_start' if cm_only else 'program_start'
-            new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
         query = f'''
         with part as (
         select participant_id, 
