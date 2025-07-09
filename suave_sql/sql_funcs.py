@@ -18,7 +18,7 @@ def clipboard_decorator(func):
 
 class Tables: 
     def __init__ (self, t1, t2, engine, print_SQL = True, 
-    clipboard = False, default_table = "stints.neon", mycase = True):
+    clipboard = False, default_table = "stints.neon", mycase = True, cloud_run=False):
         '''
         establishes settings and runs stints for the desired time period
 
@@ -53,7 +53,8 @@ class Tables:
         self.clipboard = clipboard
         
         self.con = self.engine.connect().execution_options(autocommit=True)
-        self.stints_run()
+        self.stints_cloud_run() if cloud_run else self.stints_run()
+
 
     def query_run(self, query):
         '''
@@ -93,6 +94,27 @@ class Tables:
             modified_query = original_query + ' ' + modification
         return modified_query
 
+    def stints_cloud_run(self):
+        '''
+        abbreviated stints run for gcloud run
+        '''
+        stints_statements = f'''
+        create table {self.table} as(
+        select first_name, last_name, participant_id, program_type, program_start, program_end, 
+        service_type, service_start, service_end, 
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_type else null end as grant_type,
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_start else null end as grant_start,
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_end else null end as grant_end,
+        gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id from neon.big_psg
+        join neon.basic_info using(participant_id)
+        where ((program_start is null or program_start <= {self.q_t2}) and (program_end is null or program_end >= {self.q_t1})) and 
+        (service_start is null or service_start <= {self.q_t2}) and (service_end is null or service_end >= {self.q_t1}));
+        '''
+        
+        for statement in stints_statements.split(';'):
+            if statement.strip():
+                self.con.execute(text(statement.strip() + ';'))
+
 
     def stints_run(self):
         '''
@@ -100,270 +122,270 @@ class Tables:
         '''
         stints_statements = f'''
         drop table if exists neon.big_psg;
-create table neon.big_psg as (
-with prog as (select participant_id, program_id, program_type, program_status, program_start, program_end from neon.programs),
-serv as (select program_id, service_type, service_status, service_start, service_end, service_id from neon.services),
-gran as (select service_id, grant_type, grant_start, grant_end from neon.psg
-join (select service_id, grant_id as grant_id from neon.psg) serv using(service_id, grant_id))
-select participant_id, program_type, program_id, program_start, program_end, service_id, service_type, service_start, service_end, grant_type, grant_start, grant_end 
-from prog
-left join serv using(program_id)
-left join gran using(service_id));
+        create table neon.big_psg as (
+        with prog as (select participant_id, program_id, program_type, program_status, program_start, program_end from neon.programs),
+        serv as (select program_id, service_type, service_status, service_start, service_end, service_id from neon.services),
+        gran as (select service_id, grant_type, grant_start, grant_end from neon.psg
+        join (select service_id, grant_id as grant_id from neon.psg) serv using(service_id, grant_id))
+        select participant_id, program_type, program_id, program_start, program_end, service_id, service_type, service_start, service_end, grant_type, grant_start, grant_end 
+        from prog
+        left join serv using(program_id)
+        left join gran using(service_id));
 
-drop table if exists stints.neon;
-create table stints.neon as(
-select first_name, last_name, participant_id, program_type, program_start, program_end, 
-service_type, service_start, service_end, 
-case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_type else null end as grant_type,
-case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_start else null end as grant_start,
-case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_end else null end as grant_end,
-gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id from neon.big_psg
-join neon.basic_info using(participant_id)
-where ((program_start is null or program_start <= {self.q_t2}) and (program_end is null or program_end >= {self.q_t1})) and 
-(service_start is null or service_start <= {self.q_t2}) and (service_end is null or service_end >= {self.q_t1}));
+        drop table if exists stints.neon;
+        create table stints.neon as(
+        select first_name, last_name, participant_id, program_type, program_start, program_end, 
+        service_type, service_start, service_end, 
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_type else null end as grant_type,
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_start else null end as grant_start,
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_end else null end as grant_end,
+        gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id from neon.big_psg
+        join neon.basic_info using(participant_id)
+        where ((program_start is null or program_start <= {self.q_t2}) and (program_end is null or program_end >= {self.q_t1})) and 
+        (service_start is null or service_start <= {self.q_t2}) and (service_end is null or service_end >= {self.q_t1}));
 
-drop table if exists stints.neon_chd;
-create table stints.neon_chd as(select * from stints.neon
-where program_type regexp 'chd|community navigation|violence prevention');
+        drop table if exists stints.neon_chd;
+        create table stints.neon_chd as(select * from stints.neon
+        where program_type regexp 'chd|community navigation|violence prevention');
 
-drop table if exists stints.active;
-create table stints.active as (
-select first_name, last_name, participant_id, program_type, program_start, program_end, 
-service_type, service_start, service_end, grant_type, grant_start, grant_end,
-gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id
-from neon.big_psg
-join neon.basic_info using(participant_id)
-where program_end is null and service_end is null and grant_end is null);
+        drop table if exists stints.active;
+        create table stints.active as (
+        select first_name, last_name, participant_id, program_type, program_start, program_end, 
+        service_type, service_start, service_end, grant_type, grant_start, grant_end,
+        gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id
+        from neon.big_psg
+        join neon.basic_info using(participant_id)
+        where program_end is null and service_end is null and grant_end is null);
 
-drop table if exists neon.client_teams;
-create table neon.client_teams as
-with active_services as(
-select participant_id, first_name, last_name, service_type from {self.table}
-where program_end is null and service_end is null),
+        drop table if exists neon.client_teams;
+        create table neon.client_teams as
+        with active_services as(
+        select participant_id, first_name, last_name, service_type from {self.table}
+        where program_end is null and service_end is null),
 
-all_staff as(
-select participant_id, service_type, full_name as staff_name, team
-from (select participant_id, full_name, 
-case when a.staff_type like 'outreach%' then 'outreach'
-when a.staff_type like 'case%' then 'case management'
-when a.staff_type like '%attorney%' then 'legal'
-end as 'service_type', team
-from neon.assigned_staff a
-left join neon.staff_ref r using(full_name)
-where staff_end_date is null and staff_active='yes') e),
+        all_staff as(
+        select participant_id, service_type, full_name as staff_name, team
+        from (select participant_id, full_name, 
+        case when a.staff_type like 'outreach%' then 'outreach'
+        when a.staff_type like 'case%' then 'case management'
+        when a.staff_type like '%attorney%' then 'legal'
+        end as 'service_type', team
+        from neon.assigned_staff a
+        left join neon.staff_ref r using(full_name)
+        where staff_end_date is null and staff_active='yes') e),
 
-big_table as(
-select * from active_services
-left join all_staff using(participant_id, service_type)),
+        big_table as(
+        select * from active_services
+        left join all_staff using(participant_id, service_type)),
 
-service_counts as (select participant_id, count(distinct service_type) as service_count
-from big_table
-where service_type not like 'therapy' and team is not null
-group by participant_id),
-team_counts as(select participant_id, team, count(team) as team_count from big_table
-where team is not null
-group by participant_id, team),
+        service_counts as (select participant_id, count(distinct service_type) as service_count
+        from big_table
+        where service_type not like 'therapy' and team is not null
+        group by participant_id),
+        team_counts as(select participant_id, team, count(team) as team_count from big_table
+        where team is not null
+        group by participant_id, team),
 
-wide_teams as (select * from
-(select distinct n.participant_id, n.first_name, n.last_name, case_managers, cm.team as cm_team, outreach_workers, ow.team as ow_team, attorneys, a.team as leg_team from 
-(select * from 
-{self.table} where program_end is null and service_end is null) n
-left join neon.staff_ref cm on n.case_managers = cm.full_name
-left join neon.staff_ref a on n.attorneys = a.full_name
-left join neon.staff_ref ow on n.outreach_workers = ow.full_name) a),
+        wide_teams as (select * from
+        (select distinct n.participant_id, n.first_name, n.last_name, case_managers, cm.team as cm_team, outreach_workers, ow.team as ow_team, attorneys, a.team as leg_team from 
+        (select * from 
+        {self.table} where program_end is null and service_end is null) n
+        left join neon.staff_ref cm on n.case_managers = cm.full_name
+        left join neon.staff_ref a on n.attorneys = a.full_name
+        left join neon.staff_ref ow on n.outreach_workers = ow.full_name) a),
 
-better_teams as (
-select participant_id, team as participant_team from (
-select participant_id, count(distinct service_type) as team_service_count from big_table
-where team is not null
-group by participant_id
-) s
-join team_counts using(participant_id)
-where team_service_count <= team_count)
+        better_teams as (
+        select participant_id, team as participant_team from (
+        select participant_id, count(distinct service_type) as team_service_count from big_table
+        where team is not null
+        group by participant_id
+        ) s
+        join team_counts using(participant_id)
+        where team_service_count <= team_count)
 
-select * from wide_teams
-left join better_teams using(participant_id)
-;
+        select * from wide_teams
+        left join better_teams using(participant_id)
+        ;
 
-drop table if exists neon.cm_summary;
-create table neon.cm_summary as(
-with PARTS as 
-(select first_name, last_name, participant_id, service_start as cm_start, case_managers as case_manager from stints.neon
-where service_type = 'case management' and service_end is null),
-ISP as (select participant_id, isp_start, latest_update as isp_update from neon.isp_tracker),
-LINKS as(
-select participant_id, max(linked_date) as latest_linkage, count(distinct linkage_id) as linkage_count
-from
-(select * from neon.linkages
-join parts using(participant_id)
-where (linked_date >=cm_start or start_date >= cm_start) and client_initiated = 'no') l
-group by participant_id),
-SESSIONS as(
-select participant_id, max(case when successful_contact = "Yes" then session_date else null end) as latest_session, 
-count(case when successful_contact = "Yes" then session_date else null end) as total_sessions, 
-max(session_date) as latest_attempt, count(session_date) as total_attempts
-from neon.case_sessions
-join parts using(participant_id)
-where session_date >= cm_start and contact_type = 'Case Management'
-group by participant_id)
+        drop table if exists neon.cm_summary;
+        create table neon.cm_summary as(
+        with PARTS as 
+        (select first_name, last_name, participant_id, service_start as cm_start, case_managers as case_manager from stints.neon
+        where service_type = 'case management' and service_end is null),
+        ISP as (select participant_id, isp_start, latest_update as isp_update from neon.isp_tracker),
+        LINKS as(
+        select participant_id, max(linked_date) as latest_linkage, count(distinct linkage_id) as linkage_count
+        from
+        (select * from neon.linkages
+        join parts using(participant_id)
+        where (linked_date >=cm_start or start_date >= cm_start) and client_initiated = 'no') l
+        group by participant_id),
+        SESSIONS as(
+        select participant_id, max(case when successful_contact = "Yes" then session_date else null end) as latest_session, 
+        count(case when successful_contact = "Yes" then session_date else null end) as total_sessions, 
+        max(session_date) as latest_attempt, count(session_date) as total_attempts
+        from neon.case_sessions
+        join parts using(participant_id)
+        where session_date >= cm_start and contact_type = 'Case Management'
+        group by participant_id)
 
-select * from parts
-left join links using(participant_id)
-left join isp using(participant_id)
-left join sessions using(participant_id))
-;
+        select * from parts
+        left join links using(participant_id)
+        left join isp using(participant_id)
+        left join sessions using(participant_id))
+        ;
 
-drop table if exists assess.outreach_tracker;
-create table assess.outreach_tracker as(
-with parts as (select distinct(participant_id), service_id, first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from stints.neon
-where service_type like 'Outreach'),
-eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
-group by participant_id),
-assessment as (
-select participant_id, count(distinct assessment_date) assessment_count, max(assessment_date) as latest_assessment from assess.safety_assessment
-group by participant_id),
-interv as(
-select participant_id, count(distinct assessment_date) intervention_count, max(assessment_date) as latest_intervention
-from assess.safety_intervention
-group by participant_id),
-intervention as(
-select participant_id, intervention_count, latest_intervention, time_of_intervention from interv
-join (select participant_id, time_of_assessment time_of_intervention, assessment_date latest_intervention
-from assess.safety_intervention) i using(participant_id, latest_intervention))
-select * from parts
-left join eligibility using(participant_id)
-left join assessment using(participant_id)
-left join intervention using(participant_id)
-order by outreach_start desc);
+        drop table if exists assess.outreach_tracker;
+        create table assess.outreach_tracker as(
+        with parts as (select distinct(participant_id), service_id, first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from {self.table}
+        where service_type like 'Outreach'),
+        eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
+        group by participant_id),
+        assessment as (
+        select participant_id, count(distinct assessment_date) assessment_count, max(assessment_date) as latest_assessment from assess.safety_assessment
+        group by participant_id),
+        interv as(
+        select participant_id, count(distinct assessment_date) intervention_count, max(assessment_date) as latest_intervention
+        from assess.safety_intervention
+        group by participant_id),
+        intervention as(
+        select participant_id, intervention_count, latest_intervention, time_of_intervention from interv
+        join (select participant_id, time_of_assessment time_of_intervention, assessment_date latest_intervention
+        from assess.safety_intervention) i using(participant_id, latest_intervention))
+        select * from parts
+        left join eligibility using(participant_id)
+        left join assessment using(participant_id)
+        left join intervention using(participant_id)
+        order by outreach_start desc);
 
-drop table if exists neon.bi_psg;
+        drop table if exists neon.bi_psg;
 
-create table neon.bi_psg as(
-with services as (
-select program_id, service_id, grant_id, service_type, case when grant_type is null then "NO_GRANT" else grant_type end grant_type,
-case when grant_start is null then service_start else grant_start end grant_start,
-case when grant_end is null then service_end 
-	when grant_end > service_end and service_end > grant_start then service_end
-    else grant_end end grant_end
-from neon.services
-left join 
-(select service_id, grant_id, grant_type, grant_start, grant_end
-from neon.psg
-where grant_end is null or grant_end > service_start) g using(service_id)),
+        create table neon.bi_psg as(
+        with services as (
+        select program_id, service_id, grant_id, service_type, case when grant_type is null then "NO_GRANT" else grant_type end grant_type,
+        case when grant_start is null then service_start else grant_start end grant_start,
+        case when grant_end is null then service_end 
+            when grant_end > service_end and service_end > grant_start then service_end
+            else grant_end end grant_end
+        from neon.services
+        left join 
+        (select service_id, grant_id, grant_type, grant_start, grant_end
+        from neon.psg
+        where grant_end is null or grant_end > service_start) g using(service_id)),
 
-merged as(
-select participant_id, program_id, service_id, grant_id, program_type, case when service_type is null then "NO_SERVICE" else service_type end service_type, grant_type,
-case when grant_start is null then program_start else grant_start end grant_start,
-case when grant_end is null then program_end 
-		when grant_end > program_end and program_end > grant_start then program_end
-        else grant_end end grant_end
- from neon.programs
-left join services using(program_id))
+        merged as(
+        select participant_id, program_id, service_id, grant_id, program_type, case when service_type is null then "NO_SERVICE" else service_type end service_type, grant_type,
+        case when grant_start is null then program_start else grant_start end grant_start,
+        case when grant_end is null then program_end 
+                when grant_end > program_end and program_end > grant_start then program_end
+                else grant_end end grant_end
+        from neon.programs
+        left join services using(program_id))
 
-select participant_id, program_id, service_id, grant_id, program_type, service_type,
-case when grant_type is null then "NO_SERVICE" else grant_type end grant_type,
-grant_start start_date, grant_end end_date
-from merged)
-;
+        select participant_id, program_id, service_id, grant_id, program_type, service_type,
+        case when grant_type is null then "NO_SERVICE" else grant_type end grant_type,
+        grant_start start_date, grant_end end_date
+        from merged)
+        ;
 
-drop table if exists neon.service_staff;
+        drop table if exists neon.service_staff;
 
-create table neon.service_staff as (
+        create table neon.service_staff as (
 
-with vs_ids as (
-select assigned_staff_id, 'vs' from neon.assigned_staff
-join (select participant_id, service_start, service_end from neon.services
-where service_type = 'victim services') vs using(participant_id)
-where full_name = 'Whitney Scott'),
+        with vs_ids as (
+        select assigned_staff_id, 'vs' from neon.assigned_staff
+        join (select participant_id, service_start, service_end from neon.services
+        where service_type = 'victim services') vs using(participant_id)
+        where full_name = 'Whitney Scott'),
 
-staff_table as (
-select participant_id, staff_name, staff_type,
-case when staff_type = 'Case Manager' then "Case Management"
-	when staff_type = 'Assigned Attorney' then "Legal"
-    when staff_type = "Outreach Worker" then "Outreach"
-    when staff_type = 'Therapist' then 'Therapy'
-    when staff_type = 'Victim Services Advocate' then "Victim Services" end
-    as service_type,
-    staff_start_date staff_start,
-    staff_end_date staff_end
-from
-(select participant_id, full_name staff_name, case when vs is not null then "Victim Services Advocate" else staff_type end staff_type,
-staff_start_date, staff_end_date
-from (select * from neon.assigned_staff
-left join vs_ids using(assigned_staff_id)) v) vv),
+        staff_table as (
+        select participant_id, staff_name, staff_type,
+        case when staff_type = 'Case Manager' then "Case Management"
+            when staff_type = 'Assigned Attorney' then "Legal"
+            when staff_type = "Outreach Worker" then "Outreach"
+            when staff_type = 'Therapist' then 'Therapy'
+            when staff_type = 'Victim Services Advocate' then "Victim Services" end
+            as service_type,
+            staff_start_date staff_start,
+            staff_end_date staff_end
+        from
+        (select participant_id, full_name staff_name, case when vs is not null then "Victim Services Advocate" else staff_type end staff_type,
+        staff_start_date, staff_end_date
+        from (select * from neon.assigned_staff
+        left join vs_ids using(assigned_staff_id)) v) vv),
 
-abr_staff as(
-select participant_id, service_id, staff_name, staff_start, staff_end from neon.services
-left join staff_table using(participant_id, service_type)
-where datediff(staff_start, service_start) > -100 and (service_end is null or (service_end >= staff_start)) and (staff_end is null or staff_end >= service_start)),
+        abr_staff as(
+        select participant_id, service_id, staff_name, staff_start, staff_end from neon.services
+        left join staff_table using(participant_id, service_type)
+        where datediff(staff_start, service_start) > -100 and (service_end is null or (service_end >= staff_start)) and (staff_end is null or staff_end >= service_start)),
 
-abr_w_rn as(select participant_id, service_id, staff_name, staff_start, staff_end, case when rn != 1 and staff_end is null then 1 else rn end rn
-from (
-select *, ROW_NUMBER() OVER (partition by service_id ORDER BY case when staff_end is null then 1 else 2 end, staff_end DESC) AS rn
-from abr_staff) abr),
+        abr_w_rn as(select participant_id, service_id, staff_name, staff_start, staff_end, case when rn != 1 and staff_end is null then 1 else rn end rn
+        from (
+        select *, ROW_NUMBER() OVER (partition by service_id ORDER BY case when staff_end is null then 1 else 2 end, staff_end DESC) AS rn
+        from abr_staff) abr),
 
-service_table as (
-select service_id, group_concat(staff_name order by staff_start desc SEPARATOR ', ') assigned_staff, max(staff_start) staff_start, max(staff_end) staff_end
-from 
-(select * from abr_w_rn where rn = 1) ab
-group by participant_id, service_id),
+        service_table as (
+        select service_id, group_concat(staff_name order by staff_start desc SEPARATOR ', ') assigned_staff, max(staff_start) staff_start, max(staff_end) staff_end
+        from 
+        (select * from abr_w_rn where rn = 1) ab
+        group by participant_id, service_id),
 
-latest_service as (select participant_id, service_id, service_type, latest_service from neon.services
-left join (select participant_id, service_type, max(service_start) service_start, 1 as latest_service from neon.services
-group by participant_id, service_type) s using (participant_id, service_type, service_start))
+        latest_service as (select participant_id, service_id, service_type, latest_service from neon.services
+        left join (select participant_id, service_type, max(service_start) service_start, 1 as latest_service from neon.services
+        group by participant_id, service_type) s using (participant_id, service_type, service_start))
 
-select participant_id, service_id, service_type, case when assigned_staff is null then "MISSING" else assigned_staff end assigned_staff,
-staff_start, staff_end, latest_service from
-(select * from latest_service
-left join service_table using(service_id)) s);
+        select participant_id, service_id, service_type, case when assigned_staff is null then "MISSING" else assigned_staff end assigned_staff,
+        staff_start, staff_end, latest_service from
+        (select * from latest_service
+        left join service_table using(service_id)) s);
 
-DROP TABLE IF EXISTS `stints`.`stint_count`;
-create table stints.stint_count as(
-WITH date_groups AS (
-    SELECT 
-        participant_id,
-        program_id,
-        program_start,
-        program_end,
-        CASE 
-            WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) >= program_start 
-            OR LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) IS NULL
-            THEN 0
-            ELSE 1
-        END AS new_group
-    FROM neon.programs
-)
-SELECT 
-    participant_id, 
-    1 + SUM(new_group) AS stint_count
-FROM date_groups
-GROUP BY participant_id);
+        DROP TABLE IF EXISTS `stints`.`stint_count`;
+        create table stints.stint_count as(
+        WITH date_groups AS (
+            SELECT 
+                participant_id,
+                program_id,
+                program_start,
+                program_end,
+                CASE 
+                    WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) >= program_start 
+                    OR LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) IS NULL
+                    THEN 0
+                    ELSE 1
+                END AS new_group
+            FROM neon.programs
+        )
+        SELECT 
+            participant_id, 
+            1 + SUM(new_group) AS stint_count
+        FROM date_groups
+        GROUP BY participant_id);
 
-DROP TABLE IF EXISTS `stints`.`stints_plus_stint_count`;
-create table stints.stints_plus_stint_count as(
-WITH DateGroups AS (
-    SELECT 
-        participant_id,
-        program_start,
-        program_end,
-        CASE 
-            WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) >= program_start THEN 0 
-            ELSE 1 
-        END AS is_new_group
-    FROM neon.programs
-),
-Grouped AS (
-    SELECT 
-        participant_id,
-        program_start,
-        program_end,
-        SUM(is_new_group) OVER (PARTITION BY participant_id ORDER BY program_start) AS group_num
-    FROM DateGroups
-)
-SELECT participant_id, group_num stint_num, MIN(program_start) AS stint_start, MAX(program_end) AS stint_end
-FROM Grouped
-GROUP BY participant_id, stint_num
-ORDER BY participant_id, stint_start);
+        DROP TABLE IF EXISTS `stints`.`stints_plus_stint_count`;
+        create table stints.stints_plus_stint_count as(
+        WITH DateGroups AS (
+            SELECT 
+                participant_id,
+                program_start,
+                program_end,
+                CASE 
+                    WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) >= program_start THEN 0 
+                    ELSE 1 
+                END AS is_new_group
+            FROM neon.programs
+        ),
+        Grouped AS (
+            SELECT 
+                participant_id,
+                program_start,
+                program_end,
+                SUM(is_new_group) OVER (PARTITION BY participant_id ORDER BY program_start) AS group_num
+            FROM DateGroups
+        )
+        SELECT participant_id, group_num stint_num, MIN(program_start) AS stint_start, MAX(program_end) AS stint_end
+        FROM Grouped
+        GROUP BY participant_id, stint_num
+        ORDER BY participant_id, stint_start);
 
         '''
         if self.mycase == True:
@@ -415,13 +437,11 @@ ORDER BY participant_id, stint_start);
             join fel_rankings using(mycase_id));'''
         
         ### update teams
-
-
-
-
         for statement in stints_statements.split(';'):
             if statement.strip():
                 self.con.execute(text(statement.strip() + ';'))
+
+
     def run_report(self, func_dict,*args, **kwargs):
         '''
         runs a desired report
@@ -442,6 +462,7 @@ ORDER BY participant_id, stint_start);
         return result_dict
     
     def table_update(self, desired_table, update_default_table = False):
+        ### FIX W CLOUD RUN
         if isinstance(desired_table, str):
             statements = None
             desired_table = desired_table.lower()
@@ -493,7 +514,7 @@ ORDER BY participant_id, stint_start);
                     case when program_end between {self.q_t1} and {self.q_t2} then 'program'
                     when service_end between {self.q_t1} and {self.q_t2} or grant_end between {self.q_t1} and {self.q_t2} then 'service'
                     else null end as discharged_client
-                    from stints.neon
+                    from {self.table}
                     where grant_type = {grant_type}),
 
                     discharged_prog as (select participant_id, service_count from (
@@ -519,9 +540,8 @@ ORDER BY participant_id, stint_start);
 
 
 class Audits(Tables):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
-        self.stints_run()
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True, cloud_run=False):
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
 
     @clipboard_decorator
     def program_lacks_services(self):
@@ -797,8 +817,8 @@ class Audits(Tables):
 
 
 class Queries(Audits):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True,cloud_run=False):
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
     '''
     Sets up a table for a given timeframe
 
@@ -1719,9 +1739,9 @@ class Queries(Audits):
         Parameters:
             timeframe (Bool): Whether to look true only looks at cases active in time period
             case_stage (optional): 'started' only looks at cases started in time period, 'ended' looks at cases ended
-            ranking method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
-            grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type
-            wide_col(optional): column to [widen data] on.
+            ranking_method (optional): Options: 'highest_felony' - a client's highest pretrial charge, 'highest_outcome' - a client's most severe case outcome. Defaults to "None"
+            grouping_cols (str, list): column(s) to use group_by on. Some options: case_outcomes (includes case_outcome, sentence, and probation_type), case_status, case_type, juvenile_adult, class_prior_to_trial_plea
+            wide_col(optional): column to delineate results by. Options: violent - cases marked as violent, class_type if case was felony/misdemeanor, fel_reduction - if felony was reduced,
         
         Hints:
             group_by column options: case_type, violent, juvenile_adult, class_prior_to_trial_plea, class_after_trial_plea, case_outcome, sentence, probation_type
@@ -1741,7 +1761,7 @@ class Queries(Audits):
                 e.legal_bonanza(timeframe=True, case_stage='ended', grouping_cols='case_outcome', wide_col='violent')
         
         Note:
-            Legal Information (Flexible)
+            Legal Information
         '''
         
         base_table = f'''with base as (
@@ -1997,6 +2017,8 @@ class Queries(Audits):
         left join link_tally using(participant_id))
 
         select age_group, newness, custody_status, count(distinct participant_id) as total_clients,
+        {f'''count(distinct case when DATEDIFF({self.q_t2}, program_start) >= {first_n_months} * 30.5 
+        then participant_id else null end) as enrolled_for_{first_n_months},''' if first_n_months else ''}
         count(distinct case when currently_enrolled = 'yes' then participant_id else null end) as began_enrolled,
         count(distinct case when edu_links > 0 then participant_id else null end) as school_links,
         count(distinct case when (currently_enrolled is null or currently_enrolled = 'no') and edu_links > 0 then participant_id else null end) as newly_enrolled,
@@ -2083,7 +2105,7 @@ class Queries(Audits):
     
 
     @clipboard_decorator
-    def linkages_percent(self, timeframe = True, new_client_threshold = 45, cm_only = True):
+    def linkages_percent(self, timeframe = True, new_client_threshold = 45, cm_only = True, first_n_months=None):
         '''
         Get percent of clients with linkage, broken out by custody/newness
 
@@ -2091,12 +2113,14 @@ class Queries(Audits):
             timeframe (Bool): Only include records with a linked_date in the timeframe. Defaults to True
             new_client_threshold (int): number of days required to be considered "continuing". defaults to 45
             cm_only (Bool): Only count case management clients. Defaults to True
+            first_n_months (int): only count linkages received in a clients first N months. Defaults to None
         
         Note:
             Percent of Clients with a Linkage
         '''
         timeframe_statement = f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''
         cm_only_statement = "where service_type = 'Case Management'" if cm_only else ''
+        first_n_months_statement = f"and (datediff(linked_date, service_start) <= 30.5*{first_n_months})" if first_n_months else ''
 
         query = f'''
         with part as (
@@ -2118,7 +2142,7 @@ class Queries(Audits):
         join neon.linkages using(participant_id)
         join stints.stint_count using(participant_id)
         where (program_start <= linked_date or stint_count = 1) and client_initiated = 'No'
-        {timeframe_statement}
+        {timeframe_statement} {first_n_months_statement}
         group by participant_id),
         link_base as (
         select * from base
@@ -2364,8 +2388,8 @@ join (SELECT participant_id, max(stint_num) stint_num FROM stints.stints_plus_st
         return(df)
 
 class ReferralAsks(Queries):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True, cloud_run=False):
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase, cloud_run)
     
     def highest_cases(self, attorneys = False):
         '''
@@ -2511,13 +2535,15 @@ class ReferralAsks(Queries):
 
 
 class Grants(Queries):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon",mycase = True,grant_type='idhs'):
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon",mycase = True,cloud_run=False,grant_type='idhs'):
         '''
         grant_types: 'idhs', 'idhs_r', 'r3', 'scan', 'ryds'
         '''
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
-        if isinstance(grant_type,str):
-            self.table_update(grant_type, update_default_table = True)
+        
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
+        if not cloud_run:
+            if isinstance(grant_type,str):
+                self.table_update(grant_type, update_default_table = True)
 
     def cvi_demographics(self):
         '''
