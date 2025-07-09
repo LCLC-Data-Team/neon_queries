@@ -3,8 +3,10 @@ import os
 from sqlalchemy import create_engine, text, types, bindparam
 import re
 import pyperclip
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from functools import wraps
+import numpy as np
+
 
 def clipboard_decorator(func):
     @wraps(func)
@@ -51,8 +53,35 @@ class Tables:
 
         self.print_SQL = print_SQL
         self.clipboard = clipboard
-        
         self.con = self.engine.connect().execution_options(autocommit=True)
+        
+        self.grant_dict = {
+            'a2j':{'grant_name':'A2J',
+                    'grant_start':'"2024-07-01"',
+                    'grant_end':'"2025-06-30"'},
+            'idhs': {'grant_name':'IDHS VP',
+                    'grant_start':'"2025-02-01"',
+                    'grant_end':'"2025-06-30"'},
+            'idhs_r':{'grant_name':'IDHS - R',
+                    'grant_start':'"2024-07-01"',
+                    'grant_end':'"2025-06-30"'},
+            'cvi':{'grant_name':'ICJIA - CVI',
+                    'grant_start':'"2024-10-01"',
+                    'grant_end':'"2025-09-30"'},
+            'r3':{'grant_name':'ICJIA - R3',
+                    'grant_start':'"2024-11-01"',
+                    'grant_end':'"2025-10-30"'},
+            'scan':{'grant_name':'DFSS - SCAN',
+                    'grant_start':'"2025-01-01"',
+                    'grant_end':'"2025-12-31"'},
+            'ryds':{'grant_name':'IDHS - RYDS',
+                    'grant_start':'"2024-10-01"',
+                    'grant_end':'"2025-09-30"'},
+            'yip':{'grant_name':'YIP',
+                    'grant_start':'"2025-01-01"',
+                    'grant_end':'"2025-12-31"'}}
+
+        
         self.stints_run()
 
     def query_run(self, query):
@@ -99,17 +128,6 @@ class Tables:
         runs the stints code
         '''
         stints_statements = f'''
-        drop table if exists neon.big_psg;
-create table neon.big_psg as (
-with prog as (select participant_id, program_id, program_type, program_status, program_start, program_end from neon.programs),
-serv as (select program_id, service_type, service_status, service_start, service_end, service_id from neon.services),
-gran as (select service_id, grant_type, grant_start, grant_end from neon.psg
-join (select service_id, grant_id as grant_id from neon.psg) serv using(service_id, grant_id))
-select participant_id, program_type, program_id, program_start, program_end, service_id, service_type, service_start, service_end, grant_type, grant_start, grant_end 
-from prog
-left join serv using(program_id)
-left join gran using(service_id));
-
 drop table if exists stints.neon;
 create table stints.neon as(
 select first_name, last_name, participant_id, program_type, program_start, program_end, 
@@ -216,7 +234,7 @@ left join sessions using(participant_id))
 drop table if exists assess.outreach_tracker;
 create table assess.outreach_tracker as(
 with parts as (select distinct(participant_id), service_id, first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from stints.neon
-where service_type like 'Outreach'),
+where service_type like 'Outreach' and service_end is null),
 eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
 group by participant_id),
 assessment as (
@@ -422,6 +440,7 @@ ORDER BY participant_id, stint_start);
         for statement in stints_statements.split(';'):
             if statement.strip():
                 self.con.execute(text(statement.strip() + ';'))
+
     def run_report(self, func_dict,*args, **kwargs):
         '''
         runs a desired report
@@ -440,6 +459,118 @@ ORDER BY participant_id, stint_start);
                     result_dict[result_key] = f"Error: {str(e)}"
 
         return result_dict
+
+    def run_projections(self, func_dict, *args, **kwargs):
+        '''
+        runs a report of grant projections
+        function dictionary follows formt{grant_name:{func_dict}}
+        '''
+        def combine_initial_dictionaries():
+            output_dict = {}
+            for key in grant_dict.keys() & func_dict.keys():
+                merged = dict(grant_dict[key])
+                merged['queries'] = func_dict[key]
+                output_dict[key] = merged
+            return output_dict
+
+        def create_outputs():
+            for grant_name, grant_dict_vals in func_dict.items():
+                grant_start = grant_dict_vals['grant_start']
+                grant_end = grant_dict_vals['grant_end']
+                queries = grant_dict_vals['queries']
+                time_phases_dict = {'last_month':{
+                    'table_name':f'grant_projections.{grant_name}_lmonth',
+                    'phase_start': prev_first_str,
+                    'phase_end': prev_last_str},
+                'ytd':{
+                    'table_name':f'grant_projections.{grant_name}_full',
+                    'phase_start':grant_start,
+                    'phase_end':grant_end}
+                }
+                outputs = {}
+                for phase_name, phase_dict in time_phases_dict.items():
+                    phase_table = phase_dict['table_name']
+                    self.table_update(phase_table, True)
+                    self.q_t1 = phase_dict['phase_start']
+                    self.q_t2 = phase_dict['phase_end']
+                    outputs[phase_name] = self.run_report(queries)
+                func_dict[grant_name]['outputs'] = outputs
+
+                ## projection part
+                projection_reciprocal = percent_grant_complete(grant_start, grant_end)
+                projected_outputs = {}
+
+                for query_name, query_output in func_dict[grant_name]['outputs']['ytd'].items():
+                    proj_df = query_output.copy()
+                    s = proj_df.select_dtypes(include=[np.number])*projection_reciprocal
+                    s = s.round(0).astype(int)
+                    proj_df[s.columns] = s
+                    projected_outputs[query_name] = proj_df
+                func_dict[grant_name]['outputs']['projections'] = projected_outputs
+
+
+        
+        def percent_grant_complete(grant_start, grant_end):
+            # finish this 
+            gstart = datetime.strptime(grant_start, '"%Y-%m-%d"').date()
+            gend = datetime.strptime(grant_end, '"%Y-%m-%d"').date()
+            pct_complete = ((prev_last - gstart).days / (gend - gstart).days)
+            projection_reciprocal = (1 / pct_complete)
+            return projection_reciprocal
+        
+        def format_outputs():
+            clean_dict = {}
+            for grant_name, output_dict in func_dict.items():
+                formatted_outs = {}
+                for query_name, query_df in output_dict['outputs']['ytd'].items():
+                    non_numeric_cols = query_df.select_dtypes(exclude=[np.number]).columns.tolist()
+                    numeric_cols = query_df.select_dtypes(include=[np.number]).columns.tolist()
+
+                    # Build a dict of DataFrames for each period, indexed by non-numeric columns if present
+                    if non_numeric_cols:
+                        all_dfs = {
+                            k: v[query_name].set_index(non_numeric_cols)[numeric_cols]
+                            for k, v in output_dict['outputs'].items()
+                        }
+                        # Concat along columns, with period as first level
+                        numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
+                        # Combine non-numeric index and numeric MultiIndex columns
+                        result = numeric_dfs
+                    else:
+                        all_dfs = {
+                            k: v[query_name][numeric_cols]
+                            for k, v in output_dict['outputs'].items()
+                        }
+                        numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
+                        result = numeric_dfs
+
+                    # Consistent int/float formatting
+                    numeric_cols_result = result.select_dtypes(include=[np.number]).columns
+                    numeric_data = result[numeric_cols_result].to_numpy()
+                    has_decimals = np.any(~np.isclose(numeric_data, numeric_data.astype(int)))
+                    if has_decimals:
+                        result[numeric_cols_result] = result[numeric_cols_result].round(1)
+                    else:
+                        result[numeric_cols_result] = result[numeric_cols_result].astype('Int64')
+
+                    formatted_outs[query_name] = result.fillna(0)
+                clean_dict[grant_name] = formatted_outs
+            return clean_dict
+
+
+
+        prev_last = date.today().replace(day=1) - timedelta(days=1)
+        prev_first = prev_last.replace(day=1)
+        prev_last_str = f"'{prev_last.strftime('%Y-%m-%d')}'"
+        prev_first_str = f"'{prev_first.strftime('%Y-%m-%d')}'"
+        
+        #doesn't actually matter much, 
+        grant_dict = self.grant_dict
+        func_dict = combine_initial_dictionaries()
+        create_outputs()
+        cleaned_dict = format_outputs()
+        return cleaned_dict
+
     
     def table_update(self, desired_table, update_default_table = False):
         if isinstance(desired_table, str):
@@ -477,14 +608,8 @@ ORDER BY participant_id, stint_start);
                 where program_type = 'rjcc' or program_count = 1);
                 '''
             else:
-                grant_dict = {'idhs': 'IDHS VP',
-                            'idhs_r':'IDHS - R',
-                            'cvi': 'ICJIA - CVI',
-                            'r3': 'ICJIA - R3',
-                            'scan':'DFSS - SCAN',
-                            'ryds': 'IDHS - RYDS'}
-                if desired_table in grant_dict: 
-                    grant_type = f"'{grant_dict[desired_table]}'"
+                if desired_table in self.grant_dict: 
+                    grant_type = f"'{self.grant_dict[desired_table]['grant_name']}'"
                     new_table = f'participants.{desired_table}'
                     statements = f'''
                     drop table if exists {new_table};
@@ -1088,6 +1213,82 @@ class Queries(Audits):
         return(df)
 
     @clipboard_decorator
+    def assess_cm_tracker(self, active_only = True, new_clients = False, summary_table = False):
+        '''
+        Returns a table of clients with CM assessments and their latest assessment dates.
+        
+        Parameters:
+            active_only (Bool): whether to only look at clients with active CM services. Defaults to True
+            new_clients_only (Bool): whether to only look at clients with new CM services in the timeframe. Defaults to False
+            summary_table (Bool): whether to return a summary table of clients with assessments. Defaults to False
+            
+        Note:
+            Case Management Assessment Tracker    
+        '''
+        
+        new_clients_str = ''
+        if new_clients:
+            if self.table.startswith('stints.'):
+                new_clients_str = f'b.program_start between {self.q_t1} and {self.q_t2}' if active_only else ''
+            else:
+                new_clients_str = 'new_client = "new"'
+        
+        active_clients = "b.case_managers is not null" if not active_only else ''
+        better_parameters = 'where ' + ' and '.join(filter(None, [active_clients, new_clients_str])) if any([active_clients, new_clients_str]) else ''
+
+        query = f'''
+        with all_parts as (select distinct(participant_id), b.first_name, b.last_name, b.case_managers case_manager from neon.basic_info b
+        join {self.table} using(participant_id)
+        {better_parameters}),
+        cm_assesses as (
+        select * from all_parts
+        left join (select participant_id, latest_update isp_latest from neon.isp_tracker) isp using(participant_id)
+        left join 
+        (select participant_id, max(assessment_date) needs_latest from assess.needs_assessment
+        group by participant_id) needs using(participant_id)
+        left join (
+        select participant_id, latest_date assm_latest from assess.cm_tracker
+        where assessment_type = 'assm') assm using (participant_id)
+        left join (
+        select participant_id, latest_date bp_latest from assess.cm_tracker
+        where assessment_type = 'bp') bp using (participant_id)
+        left join (
+        select participant_id, latest_date cdc_latest from assess.cm_tracker
+        where assessment_type = 'cdc') cdc using (participant_id)
+        left join (
+        select participant_id, latest_date fcs_latest from assess.cm_tracker
+        where assessment_type = 'fcs') fcs using (participant_id)
+        left join (
+        select participant_id, latest_date pcl_latest from assess.cm_tracker
+        where assessment_type = 'pcl') pcl using (participant_id))
+        '''
+        if summary_table: 
+            addendum = f'''
+    select count(distinct participant_id) 'total',
+        count(distinct case when isp_latest is not null then participant_id else null end) 'ISP',
+        count(distinct case when needs_latest is not null then participant_id else null end) 'Needs_Assess',
+        count(distinct case when assm_latest is not null then participant_id else null end) 'ASSM',
+        count(distinct case when ((bp_latest is not null) + (cdc_latest is not null) + (fcs_latest is not null) + (pcl_latest is not null)) = 4 then participant_id else null end) '4_assesses',
+        count(distinct case when ((bp_latest is not null) + (cdc_latest is not null) + (fcs_latest is not null) + (pcl_latest is not null)) >= 2 then participant_id else null end) '2plus_assesses',
+        count(distinct case when bp_latest is not null then participant_id else null end) 'BP',
+        count(distinct case when cdc_latest is not null then participant_id else null end) 'CDC',
+        count(distinct case when fcs_latest is not null then participant_id else null end) 'FCS',
+        count(distinct case when pcl_latest is not null then participant_id else null end) 'PCL'
+        from cm_assesses
+            '''
+        else:
+            addendum = f'''select * from cm_assesses'''
+
+        query = query + ' ' + addendum
+        df = self.query_run(query)
+        if summary_table:
+            df = df.T.rename(columns={0:'Total Clients'})
+            total = df.loc['total', 'Total Clients']
+            df['Percentage'] = df['Total Clients'] / total * 100
+            df = df.round(1).astype({'Percentage': 'float64'}).fillna(0)
+        return(df)
+
+    @clipboard_decorator
     def assess_score_change(self, timeframe=True, min_score = None):
         '''
         Returns a table of CM assessments & their score changes.
@@ -1514,7 +1715,7 @@ class Queries(Audits):
                 e.incident_tally()
         
         Note:
-            Critical Incident Count
+            Critical Incident Count - Notification Type
         '''
 
         query = f'''SELECT count(case when how_hear regexp '.*CPIC.*' then incident_id else null end) as CPIC,
@@ -1523,6 +1724,24 @@ class Queries(Audits):
     where (incident_date between {self.q_t1} and {self.q_t2})'''
         df = self.query_run(query)
         return df
+    
+    def incident_type_tally(self):
+        '''
+        counts incidents in timeframe, distinguishing between fatal and non-fatal events
+        
+        Note:
+            Critical Incident Count - Incident Type
+        '''
+        
+        query = f'''SELECT type_incident,
+            count(case when num_deceased > 0 then incident_id else null end) as fatal,
+            count(case when num_deceased = 0 then incident_id else null end) as non_fatal
+            FROM neon.critical_incidents
+            where incident_date between {self.q_t1} and {self.q_t2}
+            group by type_incident'''
+        df = self.query_run(query)
+        return df
+
 
     def incident_response(self):
         '''
@@ -1680,7 +1899,7 @@ class Queries(Audits):
 
         if missing_names:
             modifier = f'''
-            select first_name, last_name from discharged_isps where isp_start is null
+            select first_name, last_name, participant_id from discharged_isps where isp_start is null
             '''
         else:
             modifier = f'''
@@ -1719,9 +1938,9 @@ class Queries(Audits):
         Parameters:
             timeframe (Bool): Whether to look true only looks at cases active in time period
             case_stage (optional): 'started' only looks at cases started in time period, 'ended' looks at cases ended
-            ranking method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
-            grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type
-            wide_col(optional): column to [widen data] on.
+            ranking_method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
+            grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type. "Total" gives total number of cases.
+            wide_col(optional): column to break results out by: 'fel_reduction' - if felony reduced, 'violent' - if case was violent, 'class_type' - if case was felony/misdemeanor
         
         Hints:
             group_by column options: case_type, violent, juvenile_adult, class_prior_to_trial_plea, class_after_trial_plea, case_outcome, sentence, probation_type
@@ -1743,10 +1962,13 @@ class Queries(Audits):
         Note:
             Legal Information (Flexible)
         '''
-        
-        base_table = f'''with base as (
-        select * from neon.legal_mycase
-        join (select distinct participant_id from {self.table}) n using(participant_id)'''
+        if 'a2j_' in self.table:
+            base_table = f'''with base as (
+            select * from {self.table} '''
+        else:
+            base_table = f'''with base as (
+            select * from neon.legal_mycase
+            join (select distinct participant_id from {self.table}) n using(participant_id)'''
         
         if timeframe is True:
             # where statement exists
@@ -1809,19 +2031,25 @@ class Queries(Audits):
         else:
             count_str = 'count(distinct mycase_id) as count'
 
+        if grouping_cols: 
+            if grouping_cols[0].lower() == 'total':
+                actual_query = f'''
+                
+                select count(distinct mycase_id) as total_cases
+                from {table_name}'''
+            
+            else:
+                cols = ', '.join(str(col) for col in grouping_cols)
+                actual_query = f'''
 
-        if not grouping_cols:
+                select {cols}, {count_str}
+                from {table_name}
+                group by {cols}
+                order by {grouping_cols[0]} asc'''
+        else:
             actual_query = f'''
             
             select * from {table_name}'''
-        else: 
-            cols = ', '.join(str(col) for col in grouping_cols)
-            actual_query = f'''
-            
-            select {cols}, {count_str}
-            from {table_name}
-            group by {cols}
-            order by {grouping_cols[0]} asc'''
 
         query = base_table + ' ' + actual_query
 
@@ -1960,6 +2188,9 @@ class Queries(Audits):
         '''
 
         workforce = '|Workforce Development' if include_wfd else ''
+        if first_n_months:
+            start_date = 'service_start' if cm_only else 'program_start'
+            new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
         query = f'''
         with part as (
         select participant_id, 
@@ -1997,6 +2228,7 @@ class Queries(Audits):
         left join link_tally using(participant_id))
 
         select age_group, newness, custody_status, count(distinct participant_id) as total_clients,
+        {f"count(distinct case when DATEDIFF({self.q_t2}, {start_date}) >= {first_n_months} * 30.5 then participant_id else null end) as enrolled_for_{first_n_months}," if first_n_months else ''}
         count(distinct case when currently_enrolled = 'yes' then participant_id else null end) as began_enrolled,
         count(distinct case when edu_links > 0 then participant_id else null end) as school_links,
         count(distinct case when (currently_enrolled is null or currently_enrolled = 'no') and edu_links > 0 then participant_id else null end) as newly_enrolled,
@@ -2083,20 +2315,22 @@ class Queries(Audits):
     
 
     @clipboard_decorator
-    def linkages_percent(self, timeframe = True, new_client_threshold = 45, cm_only = True):
+    def linkages_percent(self, timeframe = True, new_client_threshold = 45, cm_only = True, first_n_months = None):
         '''
         Get percent of clients with linkage, broken out by custody/newness
 
         Parameters:
             timeframe (Bool): Only include records with a linked_date in the timeframe. Defaults to True
-            new_client_threshold (int): number of days required to be considered "continuing". defaults to 45
+            new_client_threshold (int): number of days required to be considered "continuing". Defaults to 45
             cm_only (Bool): Only count case management clients. Defaults to True
+            first_n_months (int): only count linkages received in a clients first N months. Defaults to None
         
         Note:
             Percent of Clients with a Linkage
         '''
         timeframe_statement = f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''
         cm_only_statement = "where service_type = 'Case Management'" if cm_only else ''
+        first_n_months_statement = f"and (datediff(linked_date, service_start) <= 30.5*{first_n_months})" if first_n_months else ''
 
         query = f'''
         with part as (
@@ -2118,7 +2352,7 @@ class Queries(Audits):
         join neon.linkages using(participant_id)
         join stints.stint_count using(participant_id)
         where (program_start <= linked_date or stint_count = 1) and client_initiated = 'No'
-        {timeframe_statement}
+        {timeframe_statement} {first_n_months_statement}
         group by participant_id),
         link_base as (
         select * from base
@@ -2191,6 +2425,44 @@ join (SELECT participant_id, max(stint_num) stint_num FROM stints.stints_plus_st
         select {group_by}, count({'distinct ' if distinct_clients else ''}participant_id) count
         from better_base
         {f'group by {group_by}' if group_by else ''}
+        '''
+        df = self.query_run(query)
+        return(df)
+
+
+    @clipboard_decorator
+    def linkages_total(self, lclc_initiated = True, just_cm = False, timeframe = True, distinct_clients = False, link_started = False, link_ongoing = False):
+        '''
+        Returns the total count of participants linked/linkages made
+
+
+        Parameters:
+            lclc_initiated (Bool): Only look at linkages that LCLC initiated. Defaults to True
+            just_cm (Bool): Only look at clients receiving case management. Defaults to True
+            timeframe (Bool): Only include records with a linked_date in the timeframe. Defaults to True
+            distinct_clients (Bool): Whether only one record should be counted per client. Defaults to False
+            link_started (Bool): Only include linkages with a start date. Defaults to False
+            link_ongoing (Bool): Only include linkages with no end date. Defaults to False
+
+        Note:
+            Linkage Totals
+        '''
+        service_statement = "where service_type = 'case management'" if just_cm else ''
+        
+        parameters_list = [f'linked_date between {self.q_t1} and {self.q_t2}' if timeframe else None, 
+                    'start_date is not null' if link_started else None, 
+                    'end_date is null' if link_ongoing else None,
+                    'client_initiated = "no"' if lclc_initiated else None]
+        better_parameters = 'where ' + ' and '.join(filter(None, parameters_list)) if any(parameters_list) else ''
+
+        query = f'''with parts as  (select distinct(participant_id) from {self.table}
+        {service_statement}),
+        links as (select * from neon.linkages
+        join parts using(participant_id)
+        {better_parameters} )
+
+        select {f"'total' {'participants' if distinct_clients else 'linkages'}"}, count(distinct {'participant_id' if distinct_clients else 'linkage_id'}) count
+        from links
         '''
         df = self.query_run(query)
         return(df)
@@ -2600,7 +2872,7 @@ select * from ages'''
         select count(distinct case when linked_date between {self.q_t1} and {self.q_t2} and client_initiated = 'No' then participant_id else null end) linkages_made,
         count(distinct case when start_date between {self.q_t1} and {self.q_t2} then participant_id else null end) linkages_started
         from neon.linkages
-        where (internal_program = 'therapy' or linkage_type = 'mental health') and participant_id in (select participant_id from participants.cvi)
+        where (internal_program = 'therapy' or linkage_type = 'mental health') and participant_id in (select participant_id from grant_projections.cvi_full)
         '''
 
         df = self.query_run(query)
@@ -2951,7 +3223,7 @@ select * from ages'''
             group by type_incident'''
         else:
             query = f'''select how_hear, count(incident_id) count from neon.critical_incidents
-            where incident_date between {self.q_t1} and {self.q_t2} and how_hear not regexp '.*cpic.*'
+            where incident_date between {self.q_t1} and {self.q_t2}
             group by how_hear'''
         df = self.query_run(query)
         return df

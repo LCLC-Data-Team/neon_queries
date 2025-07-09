@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sql_funcs
 
 class Report:
-    def __init__ (self, report_functions, engine_settings, start_date, end_date, report_type = 'Queries', interval = None, group_by_interval = False):
+    def __init__ (self, report_functions, engine_settings, start_date, end_date, report_type = 'Queries', interval = None, group_by_interval = False, projections=False):
         '''
         Creates an object that runs a report and stores its outputs
 
@@ -64,6 +64,26 @@ class Report:
         self.start_date = start_date
         self.end_date = end_date
         self.report_type = report_type
+        self.grant_dict = {
+            'idhs': {'grant_name':'IDHS VP',
+                    'grant_start':'2025-02-01',
+                    'grant_end':'2025-06-30'},
+            'idhs_r':{'grant_name':'IDHS - R',
+                    'grant_start':'2024-07-01',
+                    'grant_end':'2025-06-30'},
+            'cvi':{'grant_name':'ICJIA - CVI',
+                    'grant_start':'2024-10-01',
+                    'grant_end':'2025-09-30'},
+            'r3':{'grant_name':'ICJIA - R3',
+                    'grant_start':'2024-11-01',
+                    'grant_end':'2025-10-30'},
+            'scan':{'grant_name':'DFSS - SCAN',
+                    'grant_start':'2025-01-01',
+                    'grant_end':'2025-12-31'},
+            'ryds':{'grant_name':'IDHS - RYDS',
+                    'grant_start':'2024-10-01',
+                    'grant_end':'2025-09-30'},}
+        self.projections = projections
         if not interval:
             self.run_a_report()
         else:
@@ -87,13 +107,16 @@ class Report:
         full_inputs = {**{'t1':self.start_date, 't2':self.end_date}, **self.engine_settings}
         classtype = getattr(sql_funcs, self.report_type)
         q = classtype(**full_inputs)
+        
+        report_method_dict = {'projections':q.run_projections, 'set_interval':q.run_report}
+        report_method_key = 'projections' if self.projections else 'set_interval'
 
-        if isinstance(next(iter(self.report_functions.values())),dict):
+        if isinstance(next(iter(self.report_functions.values())),dict) and self.projections == False:
             self.report_outputs = {}
             for sheet, queries in self.report_functions.items():
-                self.report_outputs[sheet] = q.run_report(func_dict = queries)
+                self.report_outputs[sheet] = report_method_dict[report_method_key](func_dict = queries)
         else:
-            self.report_outputs = q.run_report(func_dict=self.report_functions)
+            self.report_outputs = report_method_dict[report_method_key](func_dict=self.report_functions)
 
     def report_to_excel(self, file_path, query_tabs = False, spacer_rows = 1):
 
@@ -121,10 +144,13 @@ class Report:
             worksheet.set_column('A:Z', 15, standard_format)
             row = 1
             for query_name, query_df in query_dict.items():
+                print(query_name)
                 column_levels = query_df.columns.nlevels
                 if column_levels > 1:
                     query_df = query_df.reset_index()
-                    query_df.iloc[1: , :].to_excel(writer,sheet_name=sheet_name,startrow=row , startcol=-1)
+                    df_start = 0 if self.projections else 1
+                    query_df.iloc[df_start: , :].to_excel(writer,sheet_name=sheet_name,startrow=row, startcol=-1)
+                    
                     df_spacer_rows = column_levels + spacer_rows - 1 #same space bt multiindex dfs & regulars
                 else:
                     query_df.to_excel(writer,sheet_name=sheet_name,startrow=row , startcol=0, index=False)
@@ -133,7 +159,11 @@ class Report:
                 #index columns
                 nonnum_cols = [idx for idx, col in enumerate(query_df.select_dtypes(exclude=['number']).columns)]
                 if nonnum_cols:
-                    worksheet.conditional_format(row + column_levels, 0, row + query_df.shape[0] + column_levels - 1, max(nonnum_cols), 
+                    if column_levels > 1:
+                        worksheet.conditional_format(row + column_levels + 1, 0, row + query_df.shape[0] + column_levels, max(nonnum_cols), 
+                        {'type':'no_errors', 'format':index_format})
+                    else:
+                        worksheet.conditional_format(row + column_levels, 0, row + query_df.shape[0] + column_levels - 1, max(nonnum_cols), 
                     {'type':'no_errors', 'format':index_format})
                 # table title
                 worksheet.merge_range(row-1, 0, row-1, (query_df.shape[1])-1, query_name.upper(), chart_title_format)
@@ -284,7 +314,7 @@ class Report:
             merged_df = pd.concat(dfs_with_multiindex.values(), axis=1)
             return merged_df
         
-        output_dict = {}
+        output_dict = OrderedDict()
         for query_name, query_dict in query_dict.items():
             random_key = random.choice(list(query_dict.keys()))
             random_df = query_dict[random_key]
