@@ -1981,13 +1981,13 @@ class Queries(Audits):
         '''
 
         workforce = '|Workforce Development' if include_wfd else ''
+        start_date = 'service_start' if cm_only else 'program_start'
         if first_n_months:
-            start_date = 'service_start' if cm_only else 'program_start'
             new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
         query = f'''
         with part as (
         select participant_id, 
-        case when timestampdiff(year, birth_date, service_start) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, service_start) > {age_threshold} then 'adult' else 'missing' end as age_group, 
+        case when timestampdiff(year, birth_date, {start_date}) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, {start_date}) > {age_threshold} then 'adult' else 'missing' end as age_group, 
         program_start, service_start, case when datediff({self.q_t2}, {start_date}) > {new_client_threshold} then 'cont' else 'new' end as newness 
         from {self.table}
         {f"where service_type = 'Case Management'" if cm_only else ''}),
@@ -2209,7 +2209,7 @@ class Queries(Audits):
    base as (select *, timestampdiff(month, stint_start, linked_date) month_diff, timestampdiff(month, linked_date, {self.q_t2}) recent_diff from neon.linkages
         join parts using(participant_id)
         join (select * from stints.stints_plus_stint_count
-join (SELECT participant_id, max(stint_num) stint_num FROM stints.stints_plus_stint_count group by participant_id) s using(participant_id, stint_num)) st using(participant_id)
+        join (SELECT participant_id, max(stint_num) stint_num FROM stints.stints_plus_stint_count group by participant_id) s using(participant_id, stint_num)) st using(participant_id)
         where (stint_num = 1 or (linked_date > stint_start or start_date > stint_start)) and linked_date <= {self.q_t2} {initiated_statement}),
         better_base as(select participant_id, 
         case when linkage_type is null and internal_program is not null then concat('LCLC - ', internal_program) else linkage_type end as linkage_type, 
