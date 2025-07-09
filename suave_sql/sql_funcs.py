@@ -66,6 +66,7 @@ class Tables:
         '''
         query = text(f"{query};")
         if self.print_SQL is True:
+            self.latest_SQL = query
             print(query)
         result = self.con.execute(query)
         data = result.fetchall()
@@ -1987,7 +1988,7 @@ class Queries(Audits):
         with part as (
         select participant_id, 
         case when timestampdiff(year, birth_date, service_start) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, service_start) > {age_threshold} then 'adult' else 'missing' end as age_group, 
-        program_start, service_start, case when datediff('2024-12-31', service_start) > {new_client_threshold} then 'cont' else 'new' end as newness 
+        program_start, service_start, case when datediff({self.q_t2}, {start_date}) > {new_client_threshold} then 'cont' else 'new' end as newness 
         from {self.table}
         {f"where service_type = 'Case Management'" if cm_only else ''}),
         cust as(
