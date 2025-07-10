@@ -502,11 +502,15 @@ class Tables:
                     statements = f'''
                     drop table if exists {new_table};
                     create table {new_table} as(
-                    with idhs as (select *, case when (grant_start between {self.q_t1} and {self.q_t2}) then 'new' else 'continuing' end as new_client,
+                    with idhs as (select *, case when (min_grant_start between {self.q_t1} and {self.q_t2}) then 'new' else 'continuing' end as new_client,
                     case when program_end between {self.q_t1} and {self.q_t2} then 'program'
                     when service_end between {self.q_t1} and {self.q_t2} or grant_end between {self.q_t1} and {self.q_t2} then 'service'
                     else null end as discharged_client
                     from {self.table}
+                    join (select participant_id, min(grant_start) min_grant_start
+                    from {self.table}
+                    where grant_type = {grant_type}
+                    group by participant_id) min using(participant_id)
                     where grant_type = {grant_type}),
 
                     discharged_prog as (select participant_id, service_count from (
@@ -2665,8 +2669,9 @@ select * from ages'''
         count(distinct case when discharged_client = 'program' then participant_id else null end) as discharged
         from {self.table}
         UNION ALL
-        select service_type, count(distinct case when new_client = 'new' then participant_id else null end) as new,
-        count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing,
+        select service_type, count(distinct case when new_client = 'new' then participant_id 
+        when grant_start between {self.q_t1} and {self.q_t2} then participant_id else null end) as new,
+        count(distinct case when new_client = 'continuing' and grant_start not between {self.q_t1} and {self.q_t2} then participant_id else null end) as continuing,
         count(distinct case when discharged_client is not null then participant_id else null end) as discharged
         from {self.table}
         group by service_type'''
