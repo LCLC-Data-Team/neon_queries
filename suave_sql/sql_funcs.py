@@ -913,6 +913,8 @@ class Audits(Tables):
         result_df = result_df[['attorney','participant_id','case/client name', 'item', 'explanation']].sort_values(by=['attorney','participant_id'])
         
         return result_df
+    @clipboard_decorator
+    def cm_missing_assessments(self):
 
     @clipboard_decorator
     def outreach_missing_assessments(self):
