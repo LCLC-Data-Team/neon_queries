@@ -140,18 +140,9 @@ join neon.basic_info using(participant_id)
 where ((program_start is null or program_start <= {self.q_t2}) and (program_end is null or program_end >= {self.q_t1})) and 
 (service_start is null or service_start <= {self.q_t2}) and (service_end is null or service_end >= {self.q_t1}));
 
-drop table if exists stints.neon_chd;
-create table stints.neon_chd as(select * from stints.neon
-where program_type regexp 'chd|community navigation|violence prevention');
-
-drop table if exists stints.active;
-create table stints.active as (
-select first_name, last_name, participant_id, program_type, program_start, program_end, 
-service_type, service_start, service_end, grant_type, grant_start, grant_end,
-gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id
-from neon.big_psg
-join neon.basic_info using(participant_id)
-where program_end is null and service_end is null and grant_end is null);
+        drop table if exists stints.neon_chd;
+        create table stints.neon_chd as(select * from stints.neon
+        where program_type regexp 'chd|community navigation|violence prevention');
 
 drop table if exists neon.client_teams;
 create table neon.client_teams as
@@ -614,11 +605,15 @@ ORDER BY participant_id, stint_start);
                     statements = f'''
                     drop table if exists {new_table};
                     create table {new_table} as(
-                    with idhs as (select *, case when (grant_start between {self.q_t1} and {self.q_t2}) then 'new' else 'continuing' end as new_client,
+                    with idhs as (select *, case when (min_grant_start between {self.q_t1} and {self.q_t2}) then 'new' else 'continuing' end as new_client,
                     case when program_end between {self.q_t1} and {self.q_t2} then 'program'
                     when service_end between {self.q_t1} and {self.q_t2} or grant_end between {self.q_t1} and {self.q_t2} then 'service'
                     else null end as discharged_client
-                    from stints.neon
+                    from {self.table}
+                    join (select participant_id, min(grant_start) min_grant_start
+                    from {self.table}
+                    where grant_type = {grant_type}
+                    group by participant_id) min using(participant_id)
                     where grant_type = {grant_type}),
 
                     discharged_prog as (select participant_id, service_count from (
@@ -918,7 +913,47 @@ class Audits(Tables):
         result_df = result_df[['attorney','participant_id','case/client name', 'item', 'explanation']].sort_values(by=['attorney','participant_id'])
         
         return result_df
-    
+    @clipboard_decorator
+    def cm_missing_assessments(self):
+
+    @clipboard_decorator
+    def outreach_missing_assessments(self):
+        query = f'''
+        with parts as (select distinct participant_id, service_start from stints.active where service_type = 'outreach'),
+		eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
+        group by participant_id),
+    	assessment as (
+        select participant_id, count(distinct assessment_date) assessment_count, max(assessment_date) as latest_assessment from assess.safety_assessment
+        group by participant_id),
+      interv as(
+        select participant_id, count(distinct assessment_date) intervention_count, max(assessment_date) as latest_intervention
+        from assess.safety_intervention
+        group by participant_id),
+     intervention as(
+        select participant_id, intervention_count, latest_intervention, time_of_intervention from interv
+        join (select participant_id, time_of_assessment time_of_intervention, assessment_date latest_intervention
+        from assess.safety_intervention) i using(participant_id, latest_intervention)),
+    big_table as (
+      select * from parts
+          left join eligibility using(participant_id)
+          left join assessment using(participant_id)
+          left join intervention using(participant_id)),
+    str_table as(
+		select participant_id,
+    case when elig_count is null then "Eligibility Screening" else null end elig_count,
+    case when assessment_count is null then "Safety Assessment" else null end assess_count,
+		case when intervention_count is null then "Initial Safety Intervention"
+     		 when time_of_intervention like 'Intake' and datediff(CURDATE(), latest_intervention) > 100 then "Updated Safety Intervention" else null end intervention_count
+    from big_table)
+    select participant_id, 
+    ((elig_count IS NOT NULL) +
+    (assess_count IS NOT NULL) +
+    (intervention_count IS NOT NULL) ) num_missing_assessments,
+    CONCAT_WS( ', ', elig_count, assess_count, intervention_count) missing_assessments
+    from str_table
+        '''
+        df = self.query_run(query)
+        return(df)
 
 
 class Queries(Audits):
@@ -2188,13 +2223,14 @@ class Queries(Audits):
         '''
 
         workforce = '|Workforce Development' if include_wfd else ''
+        start_date = 'service_start' if cm_only else 'program_start'
         if first_n_months:
-            start_date = 'service_start' if cm_only else 'program_start'
+            new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
         query = f'''
         with part as (
         select participant_id, 
-        case when timestampdiff(year, birth_date, service_start) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, service_start) > {age_threshold} then 'adult' else 'missing' end as age_group, 
-        program_start, service_start, case when datediff('2024-12-31', service_start) > {new_client_threshold} then 'cont' else 'new' end as newness 
+        case when timestampdiff(year, birth_date, {start_date}) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, {start_date}) > {age_threshold} then 'adult' else 'missing' end as age_group, 
+        program_start, service_start, case when datediff({self.q_t2}, {start_date}) > {new_client_threshold} then 'cont' else 'new' end as newness 
         from {self.table}
         {f"where service_type = 'Case Management'" if just_cm else ''}),
         cust as(
@@ -2415,7 +2451,7 @@ class Queries(Audits):
    base as (select *, timestampdiff(month, stint_start, linked_date) month_diff, timestampdiff(month, linked_date, {self.q_t2}) recent_diff from neon.linkages
         join parts using(participant_id)
         join (select * from stints.stints_plus_stint_count
-join (SELECT participant_id, max(stint_num) stint_num FROM stints.stints_plus_stint_count group by participant_id) s using(participant_id, stint_num)) st using(participant_id)
+        join (SELECT participant_id, max(stint_num) stint_num FROM stints.stints_plus_stint_count group by participant_id) s using(participant_id, stint_num)) st using(participant_id)
         where (stint_num = 1 or (linked_date > stint_start or start_date > stint_start)) and linked_date <= {self.q_t2} {initiated_statement}),
         better_base as(select participant_id, 
         case when linkage_type is null and internal_program is not null then concat('LCLC - ', internal_program) else linkage_type end as linkage_type, 
@@ -2916,8 +2952,9 @@ select * from ages'''
         count(distinct case when discharged_client = 'program' then participant_id else null end) as discharged
         from {self.table}
         UNION ALL
-        select service_type, count(distinct case when new_client = 'new' then participant_id else null end) as new,
-        count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing,
+        select service_type, count(distinct case when new_client = 'new' then participant_id 
+        when grant_start between {self.q_t1} and {self.q_t2} then participant_id else null end) as new,
+        count(distinct case when new_client = 'continuing' and grant_start not between {self.q_t1} and {self.q_t2} then participant_id else null end) as continuing,
         count(distinct case when discharged_client is not null then participant_id else null end) as discharged
         from {self.table}
         group by service_type'''
