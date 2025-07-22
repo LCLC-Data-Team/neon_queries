@@ -914,6 +914,47 @@ class Audits(Tables):
         
         return result_df
 
+    ### SERVICE-SPECIFIC SHINY STUFF
+    @clipboard_decorator
+    def active_session_tally(self, service_type = 'Case Management', successful_only = True):
+        successful_statement = "and successful_contact = 'yes'" if successful_only else ''
+        query = f'''
+        select * from
+        (select distinct participant_id from stints.active where service_type = '{service_type}') st 
+        left join (select participant_id, count(participant_id) total_sessions, max(session_date) latest_session from neon.case_sessions
+        join (select participant_id, service_start from stints.active where service_type = '{service_type}') st using(participant_id)
+        where contact_type = '{service_type}' and session_date >= service_start {successful_statement}
+        group by participant_id) al using(participant_id)
+        '''
+        df = self.query_run(query)
+        return(df)
+
+    @clipboard_decorator
+    def cm_isp_status(self):
+        query = f'''
+        select participant_id, latest_update, total_goals, goals_completed, 
+            case when latest_update is null then 'Needs Initial'
+        when datediff(DATE_ADD(latest_update, INTERVAL 3 MONTH), CURDATE()) <0 then 'Needs Update'
+        else 'Up to Date' end 'ISP_Status'
+        from neon.isp_tracker
+        right join (select distinct participant_id from stints.active) a using(participant_id)
+        '''
+        df = self.query_run(query)
+        return(df)
+    
+    @clipboard_decorator
+    def cm_linkage_totals(self):
+        query = f'''
+        select * from (select distinct participant_id from stints.active where service_type = 'case management') stint
+        left join(
+        select participant_id, count(distinct linkage_id) total_linkages, max(linked_date) as latest_linkage from neon.linkages
+        join (select * from stints.active where service_type = 'case management') s using(participant_id)
+        where service_start <= linked_date and client_initiated = 'no'
+        group by participant_id) p using(participant_id)
+        '''
+        df = self.query_run(query)
+        return(df)
+        
     @clipboard_decorator
     def outreach_missing_assessments(self):
         query = f'''
@@ -933,15 +974,15 @@ class Audits(Tables):
         from assess.safety_intervention) i using(participant_id, latest_intervention)),
     big_table as (
       select * from parts
-          left join eligibility using(participant_id)
-          left join assessment using(participant_id)
-          left join intervention using(participant_id)),
+        left join eligibility using(participant_id)
+        left join assessment using(participant_id)
+        left join intervention using(participant_id)),
     str_table as(
 		select participant_id,
     case when elig_count is null then "Eligibility Screening" else null end elig_count,
     case when assessment_count is null then "Safety Assessment" else null end assess_count,
 		case when intervention_count is null then "Initial Safety Intervention"
-     		 when time_of_intervention like 'Intake' and datediff(CURDATE(), latest_intervention) > 100 then "Updated Safety Intervention" else null end intervention_count
+     	when time_of_intervention like 'Intake' and datediff(CURDATE(), latest_intervention) > 100 then "Updated Safety Intervention" else null end intervention_count
     from big_table)
     select participant_id, 
     ((elig_count IS NOT NULL) +
