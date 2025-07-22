@@ -2262,7 +2262,7 @@ class Queries(Audits):
         '''
 
         workforce = '|Workforce Development' if include_wfd else ''
-        start_date = 'service_start' if cm_only else 'program_start'
+        start_date = 'service_start' if just_cm else 'program_start'
         if first_n_months:
             new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
         query = f'''
