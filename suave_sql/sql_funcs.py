@@ -20,7 +20,7 @@ def clipboard_decorator(func):
 
 class Tables: 
     def __init__ (self, t1, t2, engine, print_SQL = True, 
-    clipboard = False, default_table = "stints.neon", mycase = True):
+    clipboard = False, default_table = "stints.neon", mycase = True, cloud_run=False):
         '''
         establishes settings and runs stints for the desired time period
 
@@ -53,36 +53,10 @@ class Tables:
 
         self.print_SQL = print_SQL
         self.clipboard = clipboard
+        
         self.con = self.engine.connect().execution_options(autocommit=True)
-        
-        self.grant_dict = {
-            'a2j':{'grant_name':'A2J',
-                    'grant_start':'"2024-07-01"',
-                    'grant_end':'"2025-06-30"'},
-            'idhs': {'grant_name':'IDHS VP',
-                    'grant_start':'"2025-02-01"',
-                    'grant_end':'"2025-06-30"'},
-            'idhs_r':{'grant_name':'IDHS - R',
-                    'grant_start':'"2024-07-01"',
-                    'grant_end':'"2025-06-30"'},
-            'cvi':{'grant_name':'ICJIA - CVI',
-                    'grant_start':'"2024-10-01"',
-                    'grant_end':'"2025-09-30"'},
-            'r3':{'grant_name':'ICJIA - R3',
-                    'grant_start':'"2024-11-01"',
-                    'grant_end':'"2025-10-30"'},
-            'scan':{'grant_name':'DFSS - SCAN',
-                    'grant_start':'"2025-01-01"',
-                    'grant_end':'"2025-12-31"'},
-            'ryds':{'grant_name':'IDHS - RYDS',
-                    'grant_start':'"2024-10-01"',
-                    'grant_end':'"2025-09-30"'},
-            'yip':{'grant_name':'YIP',
-                    'grant_start':'"2025-01-01"',
-                    'grant_end':'"2025-12-31"'}}
+        self.stints_cloud_run() if cloud_run else self.stints_run()
 
-        
-        self.stints_run()
 
     def query_run(self, query):
         '''
@@ -121,7 +95,27 @@ class Tables:
             # If no GROUP BY clause is found, just append the condition to the end of the query
             modified_query = original_query + ' ' + modification
         return modified_query
-
+    
+    def stints_cloud_run(self):
+        '''
+        abbreviated stints run for gcloud run
+        '''
+        stints_statements = f'''
+        create table {self.table} as(
+        select first_name, last_name, participant_id, program_type, program_start, program_end, 
+        service_type, service_start, service_end, 
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_type else null end as grant_type,
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_start else null end as grant_start,
+        case when (grant_start is null or grant_start <= {self.q_t2}) and (grant_end is null or grant_end >= {self.q_t1}) then grant_end else null end as grant_end,
+        gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys,program_id, service_id from neon.big_psg
+        join neon.basic_info using(participant_id)
+        where ((program_start is null or program_start <= {self.q_t2}) and (program_end is null or program_end >= {self.q_t1})) and 
+        (service_start is null or service_start <= {self.q_t2}) and (service_end is null or service_end >= {self.q_t1}));
+        '''
+        
+        for statement in stints_statements.split(';'):
+            if statement.strip():
+                self.con.execute(text(statement.strip() + ';'))
 
     def stints_run(self):
         '''
@@ -556,7 +550,31 @@ ORDER BY participant_id, stint_start);
         prev_first_str = f"'{prev_first.strftime('%Y-%m-%d')}'"
         
         #doesn't actually matter much, 
-        grant_dict = self.grant_dict
+        grant_dict =  {'a2j':{'grant_name':'A2J',
+                    'grant_start':'"2024-07-01"',
+                    'grant_end':'"2025-06-30"'},
+            'idhs': {'grant_name':'IDHS VP',
+                    'grant_start':'"2025-02-01"',
+                    'grant_end':'"2025-06-30"'},
+            'idhs_r':{'grant_name':'IDHS - R',
+                    'grant_start':'"2024-07-01"',
+                    'grant_end':'"2025-06-30"'},
+            'cvi':{'grant_name':'ICJIA - CVI',
+                    'grant_start':'"2024-10-01"',
+                    'grant_end':'"2025-09-30"'},
+            'r3':{'grant_name':'ICJIA - R3',
+                    'grant_start':'"2024-11-01"',
+                    'grant_end':'"2025-10-30"'},
+            'scan':{'grant_name':'DFSS - SCAN',
+                    'grant_start':'"2025-01-01"',
+                    'grant_end':'"2025-12-31"'},
+            'ryds':{'grant_name':'IDHS - RYDS',
+                    'grant_start':'"2024-10-01"',
+                    'grant_end':'"2025-09-30"'},
+            'yip':{'grant_name':'YIP',
+                    'grant_start':'"2025-01-01"',
+                    'grant_end':'"2025-12-31"'}}
+
         func_dict = combine_initial_dictionaries()
         create_outputs()
         cleaned_dict = format_outputs()
@@ -639,9 +657,8 @@ ORDER BY participant_id, stint_start);
 
 
 class Audits(Tables):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
-        self.stints_run()
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True, cloud_run=False):
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
 
     @clipboard_decorator
     def program_lacks_services(self):
@@ -996,8 +1013,8 @@ class Audits(Tables):
 
 
 class Queries(Audits):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True,cloud_run=False):
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
     '''
     Sets up a table for a given timeframe
 
@@ -2857,13 +2874,15 @@ class ReferralAsks(Queries):
 
 
 class Grants(Queries):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon",mycase = True,grant_type='idhs'):
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon",mycase = True,cloud_run=False,grant_type='idhs'):
         '''
         grant_types: 'idhs', 'idhs_r', 'r3', 'scan', 'ryds'
         '''
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
-        if isinstance(grant_type,str):
-            self.table_update(grant_type, update_default_table = True)
+        
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
+        if not cloud_run:
+            if isinstance(grant_type,str):
+                self.table_update(grant_type, update_default_table = True)
 
     def cvi_demographics(self):
         '''
