@@ -511,6 +511,7 @@ ORDER BY participant_id, stint_start);
                 projected_outputs = {}
 
                 for query_name, query_output in func_dict[grant_name]['outputs']['ytd'].items():
+                    print(query_name, query_output)
                     proj_df = query_output.copy()
                     s = proj_df.select_dtypes(include=[np.number])*projection_reciprocal
                     s = s.round(0).astype(int)
