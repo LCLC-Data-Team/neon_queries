@@ -477,7 +477,7 @@ ORDER BY participant_id, stint_start);
         '''
         def combine_initial_dictionaries():
             output_dict = {}
-            for key in grant_dict.keys() & func_dict.keys():
+            for key in self.grant_dict.keys() & func_dict.keys():
                 merged = dict(grant_dict[key])
                 merged['queries'] = func_dict[key]
                 output_dict[key] = merged
