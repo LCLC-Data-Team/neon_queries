@@ -56,12 +56,13 @@ class Tables:
         
         self.con = self.engine.connect().execution_options(autocommit=True)
         self.stints_cloud_run() if cloud_run else self.stints_run()
-        self.grant_dict = {'a2j':{'grant_name':'A2J',
-                    'grant_start':'"2024-07-01"',
-                    'grant_end':'"2025-06-30"'},
+        self.grant_dict = {
+            'a2j': {'grant_name':'A2J',
+                    'grant_start':'"2025-07-01"',
+                    'grant_end':'"2026-06-30"'},
             'idhs': {'grant_name':'IDHS VP',
-                    'grant_start':'"2025-02-01"',
-                    'grant_end':'"2025-06-30"'},
+                    'grant_start':'"2025-07-01"',
+                    'grant_end':'"2026-06-30"'},
             'idhs_r':{'grant_name':'IDHS - R',
                     'grant_start':'"2024-07-01"',
                     'grant_end':'"2025-06-30"'},
@@ -77,9 +78,10 @@ class Tables:
             'ryds':{'grant_name':'IDHS - RYDS',
                     'grant_start':'"2024-10-01"',
                     'grant_end':'"2025-09-30"'},
-            'yip':{'grant_name':'YIP',
-                    'grant_start':'"2025-01-01"',
-                    'grant_end':'"2025-12-31"'}}
+            'jac':{'grant_name': 'JAC - CVI',
+                    'grant_start':'"2025-08-01"',
+                    'grant_end':'"2027-07-31"'},
+                    }
 
 
     def query_run(self, query):
