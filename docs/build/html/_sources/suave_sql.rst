@@ -22,7 +22,7 @@ Specific-Use Functions
 -------------------------
 
 .. automodule:: sql_funcs
-   :members: Audits, ReferralAsks, Grants
+   :members: Grants, Audits, ReferralAsks
    :undoc-members: clipboard_decorator
    :show-inheritance: False
 
