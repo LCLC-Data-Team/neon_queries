@@ -2353,6 +2353,114 @@ class Queries(Audits):
         df = self.query_run(query)
         return(df)
 
+    def linkages_isp_goals(self, lclc_initiated = True, timeframe_only = False, discharged_only = False, idhs_edu_employ = False):
+        '''
+        Returns a table of the number of clients with an active, concluded, or unstarted linkage for an ISP goal domain. Also has a row for # of clients who have a linkage for at least one goal  
+        
+        Parameters:
+            lclc_initiated: only include non-client-initiated linkages. Defaults to True
+            timeframe_ony: only include linkages made in the timeframe. Defaults to False
+            discharged_only: only include discharged clients. Defaults to False
+            idhs_edu_employ: count education linkages for employment goals. Defaults to False
+
+        Note:
+            Linkages for ISP Goal Areas
+        '''
+
+        query = f'''
+        with goal_key as(select distinct goal_domain,
+  case when goal_domain regexp 'education.*|.*school' then concat('education.*|',goal_domain)
+  when goal_domain like 'employment' then concat('employment.*|workforce.*{'education.*|' if idhs_edu_employ else ''}|',goal_domain)
+  when goal_domain like 'mobility' then concat('transportation|',goal_domain)
+  else concat(goal_domain, '.*') end goal_regexp
+  from neon.isp_goals),
+
+  parts as (select participant_id, min(program_start) program_start from {self.table}
+  {f'where service_type = "case management" and program_end between {self.q_t1} and {self.q_t2}' if discharged_only else ''}
+   group by participant_id),
+
+goal_areas as (select distinct goal_domain, participant_id, goal_regexp from parts
+ join neon.isp_goals using(participant_id)
+ join (select participant_id, max(isp_id) isp_id from neon.isp_goals group by participant_id) i using(participant_id, isp_id)
+ join goal_key using(goal_domain)),
+
+long_link as (select participant_id, linkage_id, 
+  case when internal_program = 'therapy' then 'Mental Health'
+  when internal_program = 'housing' then 'Housing' else linkage_type end linkage_type,
+  linkage_org, 
+  case when start_date is null and (end_date is null or end_date > {self.q_t2}) then 'unstarted'
+  when start_date is not null and (end_date is null or end_date > {self.q_t2}) then 'active'
+  else 'concluded' end linkage_status
+  from neon.linkages
+join parts using(participant_id)
+where (program_start <= start_date or program_start <= linked_date) and linkage_type is not null
+{f'and linked_date between {self.q_t1} and {self.q_t2}' if lclc_initiated else ''} {f'and client_initiated = "no"' if lclc_initiated else ''}),
+
+extra_long_link as (
+  select * from long_link
+  union all
+  select participant_id, linkage_id, case when goal_domain like "education%" then 'Education' else goal_domain end as linkage_type, linkage_org,
+  case when start_date is null and (end_date is null or end_date > {self.q_t2}) then 'unstarted'
+  when start_date is not null and (end_date is null or end_date > {self.q_t2}) then 'active'
+  else 'concluded' end linkage_status from neon.isp_goals_linkages
+  join neon.isp_goals using(goal_id)
+  join neon.linkages using(linkage_id, participant_id)
+where linkage_id not in (select distinct linkage_id from long_link)),
+
+grouped_link as (
+select participant_id, linkage_type,
+  count(distinct case when linkage_status = 'active' then linkage_id else null end) active,
+  count(distinct case when linkage_status = 'concluded' then linkage_id else null end) concluded,
+  count(distinct case when linkage_status = 'unstarted' then linkage_id else null end) unstarted
+  from extra_long_link
+group by participant_id, linkage_type),
+
+  
+goals_w_link as (select participant_id, case when goal_domain like "education%" then "Education" else goal_domain end goal_domain, 
+  sum(active) active, sum(concluded) concluded, sum(unstarted) unstarted from goal_areas 
+left join (
+    select * from goal_areas
+    left join grouped_link using(participant_id)
+    where linkage_type regexp goal_regexp) g 
+  using(participant_id, goal_domain, goal_regexp)
+group by participant_id, goal_domain),
+
+linkage_counts as(select goal_domain, 
+  count(distinct participant_id) total_participants,
+  count(distinct case when unstarted is not null then participant_id else null end) linkage_made,
+  count(distinct case when active > 0 or concluded > 0 then participant_id else null end) linkage_started,
+  count(distinct case when active > 0 then participant_id else null end) linkage_active
+from goals_w_link
+group by goal_domain),
+
+grouped_linkage_counts as(select goal_domain, 
+  count(distinct participant_id) total_participants,
+  count(distinct case when unstarted is not null then participant_id else null end) linkage_made,
+  count(distinct case when active > 0 or concluded > 0 then participant_id else null end) linkage_started,
+  count(distinct case when active > 0 then participant_id else null end) linkage_active
+from goals_w_link
+group by goal_domain
+  order by linkage_made desc),
+
+total_row as(select 'ANY DOMAIN' goal_domain, count(distinct participant_id) total_participants, 
+  count(distinct case when unstarted is not null then participant_id else null end) linkage_made,
+  count(distinct case when active > 0 or concluded > 0 then participant_id else null end) linkage_started,
+  count(distinct case when active > 0 then participant_id else null end) linkage_active
+  
+  from goals_w_link)
+
+select goal_domain, total_participants, 
+  round(linkage_active/total_participants, 2) linkage_active,
+  round(linkage_started/total_participants, 2) linkage_started,
+  round(linkage_made/total_participants, 2) linkage_made
+from (select * from total_row 
+      union all
+      select * from grouped_linkage_counts) t
+        '''
+
+        df = self.query_run(query)
+        return(df)
+    
     @clipboard_decorator
     def linkages_monthly(self, lclc_initiated = True, just_cm = False):
         '''
@@ -3497,4 +3605,65 @@ select * from ages'''
         '''
 
         df = self.query_run(query)
+        return df
+    
+    def ryds_cirriculum(self, summary_table = True):
+        '''
+        Returns a table of cirriculum completion information for clients, by default grouped in a summary_table.  
+
+        Parameters:
+            summary_table: True returns a table with bins matching the PPR report. False returns one row per client, with information on which units are missing.
+        Note:
+            IDHS - RYDS Cirriculum Completion
+        '''
+        
+        query = f'''
+        with complete_table as 
+        (select *, (case when num_sessions = 1 then .5 else 1 end) unit_completion from 
+        (select participant_id, unit_number, count(participant_id) num_sessions from 
+            (select participant_id, attendance, REGEXP_REPLACE(unit_number, '[^0-9]+', '') unit_number from neon.activities_attendance) AA
+        WHERE unit_number REGEXP '[0-9]' and attendance = 'Attended'
+        group by participant_id, unit_number) ugh),
+
+        unit_table as (select participant_id, round(sum(unit_completion)/6, 2) pct_complete,
+        group_concat(distinct case when unit_completion = 1 then unit_number else null end order by unit_number separator ', ') complete_units,
+        group_concat(distinct case when unit_completion = .5 then unit_number else null end order by unit_number separator ', ') partial_units
+        from complete_table
+        group by participant_id),
+
+        big_table as (select participant_id, name, complete_units, partial_units, missing_units,
+        ifnull(pct_complete, 0) pct_complete, 
+        case 
+                when pct_complete between .01 and .49 then "0%-50%" 
+                when pct_complete between .5 and .99 then "50%-99%" 
+                when pct_complete = 1 then "100%" 
+                else "0%" end completion_group from unit_table
+        right join (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name, "1, 2, 3, 4, 5, 6" as missing_units
+        from {self.table}) r using(participant_id))
+        '''
+        
+        if summary_table:
+            addendum = 'select completion_group, count(distinct participant_id) count from big_table group by completion group'
+            query = query + ' ' + addendum
+            df = self.query_run(query)
+            return df
+        
+        addendum = 'select * from big_table'
+        query = query + ' ' + addendum
+        df = self.query_run(query)
+        
+        copy_df = df.copy()
+        copy_df['missing_units'] = copy_df['missing_units'].apply(lambda x: x.split(', ') if pd.notna(x) else [])
+        copy_df['partial_units'] = copy_df['partial_units'].apply(lambda x: x.split(', ') if pd.notna(x) else [])
+        copy_df['complete_units'] = copy_df['complete_units'].apply(lambda x: x.split(', ') if pd.notna(x) else [])
+
+        # remove units from the missing units list that appear in the other two
+        df['missing_units'] = copy_df.apply(
+            lambda row: [
+                elem for elem in row['missing_units']
+                if elem not in set(row['complete_units'] + row['partial_units'])
+            ],
+            axis=1)
+        # revert to string
+        df['missing_units'] = df['missing_units'].transform(lambda x: ','.join(map(str, x)))
         return df
