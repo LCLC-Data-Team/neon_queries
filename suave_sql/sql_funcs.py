@@ -245,8 +245,8 @@ left join sessions using(participant_id))
 
 drop table if exists assess.outreach_tracker;
 create table assess.outreach_tracker as(
-with parts as (select distinct(participant_id), service_id, first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from stints.neon
-where service_type like 'Outreach' and service_end is null),
+with parts as (select distinct(participant_id), service_id, first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from stints.active
+where service_type like 'Outreach'),
 eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
 group by participant_id),
 assessment as (
@@ -668,6 +668,7 @@ class Audits(Tables):
     def program_lacks_services(self):
         '''
         Returns a table of active programs with no corresponding services.
+        
         '''
         query = f'''
         with psg_table as (
@@ -759,6 +760,17 @@ class Audits(Tables):
         return(df)
 
     def legal_audit_lawyers(self, func_dict = None):
+        '''
+        Returns several joined tables of missing legal data
+
+        Parameters:
+            func_dict: a dictionary of functions to use
+
+        Note:
+            Audit - Legal Data
+        '''
+
+
         def caseid_NAN(active_only = True, new_cases = False):
             active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
             new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
@@ -938,6 +950,17 @@ class Audits(Tables):
     ### SERVICE-SPECIFIC SHINY STUFF
     @clipboard_decorator
     def active_session_tally(self, service_type = 'Case Management', successful_only = True):
+        '''
+        Counts the number of active sessions for each participant_id
+
+        Parameters:
+            service_type: what service to count sessions of. Defaults to 'Case Management'
+            successful_only: Whether to only include successful contacts. Defaults to True
+        
+        Note:
+            Case Sessions - Number of Case Sessions per Client
+        '''
+
         successful_statement = "and successful_contact = 'yes'" if successful_only else ''
         query = f'''
         select * from
@@ -952,6 +975,12 @@ class Audits(Tables):
 
     @clipboard_decorator
     def cm_isp_status(self):
+        '''
+        Table of ISP status for active clients
+
+        Note:
+            ISPs - Statuses for Active Clients
+        '''
         query = f'''
         select participant_id, latest_update, total_goals, goals_completed, 
             case when latest_update is null then 'Needs Initial'
@@ -965,6 +994,12 @@ class Audits(Tables):
     
     @clipboard_decorator
     def cm_linkage_totals(self):
+        '''
+        Table of linkage totals for active clients
+
+        Note:
+            Linkages - Totals for Active Clients
+        '''
         query = f'''
         select * from (select distinct participant_id from stints.active where service_type = 'case management') stint
         left join(
@@ -978,6 +1013,12 @@ class Audits(Tables):
         
     @clipboard_decorator
     def outreach_missing_assessments(self):
+        '''
+        Returns a table of the count and names of missing outreach assessments for clients. 
+
+        Note:
+            Outreach - Missing Assessment Information
+        '''
         query = f'''
         with parts as (select distinct participant_id, service_start from stints.active where service_type = 'outreach'),
 		eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
@@ -1060,7 +1101,7 @@ class Queries(Audits):
                 e.assess_assm(cutoff_score=3, score_date='max')
         
         Note:
-            ASSM Scores by Category
+            Assessments - ASSM Scores by Category
 
         '''
 
@@ -1133,7 +1174,7 @@ class Queries(Audits):
                 e.assm_improvement(isp_goals = True)
 
         Note:
-            ASSM Score Changes
+            Assessments - ASSM Score Changes
         '''
         
         where_statement = f'''where min_date = assessment_date or assessment_date between {self.q_t1} and {self.q_t2}''' if timeframe else ''
@@ -1285,24 +1326,81 @@ class Queries(Audits):
         return(df)
 
     @clipboard_decorator
-    def assess_missing_outreach(self):
+    def assess_outreach_completion(self):
         '''
-        Returns a list of outreach clients missing assessments
-
-        Example:
-            Get clients missing outreach assessments::
-                
-                e.assess_missing_outreach()
+        Returns a table of outreach assessments (and total number of assessments) and their completion rates within 30 days/while working with a client/
         
         Note:
-            Outreach Clients Missing Assessments
+            Assessments - Outreach Completion Rates
         '''
 
         query = f'''
-        select participant_id, first_name, last_name, outreach_worker, outreach_start from assess.outreach_tracker
-        join (select distinct participant_id from  {self.table}
-        where service_type like 'outreach' and service_end is null) o using(participant_id) 
-        where elig_count is null and assessment_count is null and intervention_count is null
+        with parts as (select distinct(participant_id), first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from {self.table}
+        where service_type like 'Outreach'),
+        eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig, min(abs(datediff(outreach_start, assessment_date))) time_between, 'Eligibility' assess_type
+        from assess.outreach_eligibility
+        join parts using(participant_id)
+        group by participant_id),
+        assessment as (
+        select participant_id, count(distinct assessment_date) assessment_count, max(assessment_date) as latest_assessment, min(abs(datediff(outreach_start, assessment_date))) time_between, 'Safety Assessment' from assess.safety_assessment
+        join parts using(participant_id)
+        group by participant_id),
+        interv as(
+        select participant_id, count(distinct assessment_date) intervention_count, max(assessment_date) as latest_intervention, min(abs(datediff(outreach_start, assessment_date))) time_between
+        from assess.safety_intervention
+        join parts using(participant_id)
+        group by participant_id),
+        intervention as(
+        select participant_id, intervention_count, latest_intervention, time_between, 'Safety Intervention' from interv
+        join parts using(participant_id)
+        join (select participant_id, time_of_assessment time_of_intervention, assessment_date latest_intervention
+        from assess.safety_intervention) i using(participant_id, latest_intervention)),
+
+        longie as(select * from parts
+        join
+        (select * from eligibility
+        union all
+        select * from assessment
+        union all
+        select * from intervention)l using(participant_id)),
+
+        by_assessment as (select assess_type, count(distinct participant_id) total_assessed,
+        count(distinct case when time_between <= 31 then participant_id end) assessed_in_30
+        from longie
+        group by assess_type),
+
+        long_and_unioned as
+        (select * from by_assessment
+        union all
+        select 
+        concat('Total: ', total_assessed) num_assesses,
+        count(distinct participant_id) num_assessed, 
+        count(distinct case when assessed_in_30 = total_assessed then participant_id else null end) assessed_in_30 
+        from
+        (select participant_id, count(distinct assess_type) total_assessed,
+        count(distinct case when time_between <= 31 then assess_type end) assessed_in_30
+        from longie
+        group by participant_id)a
+        group by total_assessed
+        union all
+        select 'Total: Any Assessment',
+        count(distinct participant_id) num_assessed, 
+        count(distinct case when assessed_in_30 = total_assessed then participant_id else null end) assessed_in_30
+        from (select participant_id, count(distinct assess_type) total_assessed,
+        count(distinct case when time_between <= 31 then assess_type end) assessed_in_30
+        from longie
+        group by participant_id)a)
+
+        select assess_type, 
+        CONCAT(ROUND((total_assessed / total_clients) * 100, 0), '%') AS pct_assessed,
+        CONCAT(ROUND((assessed_in_30 / total_assessed) * 100, 0), '%') AS pct_assessed_in_30,
+        CONCAT(ROUND((assessed_in_30 / total_clients) * 100, 0), '%') AS pct_of_total_assessed_in_30
+        from
+        (select assess_type, 
+        (select count(distinct participant_id) from parts) as total_clients, 
+        total_assessed, assessed_in_30 
+        from long_and_unioned)b
+
         '''
         df = self.query_run(query)
         return(df)
@@ -1318,7 +1416,7 @@ class Queries(Audits):
             summary_table (Bool): whether to return a summary table of clients with assessments. Defaults to False
             
         Note:
-            Case Management Assessment Tracker    
+            Assessments - Case Management Tracker    
         '''
         
         new_clients_str = ''
@@ -1402,7 +1500,7 @@ class Queries(Audits):
                 e.assess_score_change(timeframe=False, min_score=32)
         
         Note:
-            Case Management Assessment Score Changes
+            Assessments - Case Management Score Changes
         '''
 
         where_statement = f"""and latest_date >= {self.q_t1} and earliest_date <= {self.q_t2}""" if timeframe else ''
@@ -1438,7 +1536,7 @@ class Queries(Audits):
             distinct_clients (Bool): Whether to count multiple assessments per client. Defaults to False
         
         Note:
-            Assessment Count by Inventory Type (protective, risk-factor, strength-based)
+            Assessments - Count by Inventory Type (protective, risk-factor, strength-based)
         '''
         distinct = 'distinct ' if distinct_clients else ''
         timeframe = f'and assessment_date between {self.q_t1} and {self.q_t2}' if timeframe else ''
@@ -1496,7 +1594,7 @@ class Queries(Audits):
                 e.custody_status(summary_table=True)
         
         Note:
-            Custody Statuses (Individual or Grouped)
+            Legal - Custody Statuses (Individual or Grouped)
         '''
         
         query = f'''
@@ -1551,7 +1649,7 @@ class Queries(Audits):
                 e.dem_address(new_clients=True, group_by='zip')
         
         Note:
-            Client Addresses
+            Demographics - Client Addresses
         '''
         new_client_statement = f'where program_start between {self.q_t1} and {self.q_t2}' if new_clients else ''
         query = f'''
@@ -1613,7 +1711,7 @@ class Queries(Audits):
                 e.dem_age(new_clients=True)
         
         Note:
-            Client Ages
+            Demographics - Client Ages
         '''
         new_client_condition = f'''WHERE program_start between {self.q_t1} AND {self.q_t2}''' if new_clients else ''
 
@@ -1662,7 +1760,7 @@ class Queries(Audits):
                 e.dem_race_gender()
         
         Note:
-            Client Races or Genders
+            Demographics - Client Races/Genders
         '''
         query = f'''select {race_gender}, count(distinct participant_id) as count
         from {self.table}
@@ -1701,7 +1799,7 @@ class Queries(Audits):
                 e.enrollment(service_type=True, grant_type=True)
         
         Note:
-            Total Clients Enrolled (overall or by program/service/grant)
+            Enrollment - Total Clients (overall or by program/service/grant)
         '''
 
         types_list = []
@@ -1732,7 +1830,7 @@ class Queries(Audits):
                 e.enrollment_bundles()
         
         Note:
-            Client Program Combinations
+            Enrollment - Client Program Combinations
         '''
         query = f'''select prog, count(distinct participant_id) from
         (select participant_id, group_concat(distinct program_type) prog from stints.neon
@@ -1751,7 +1849,7 @@ class Queries(Audits):
                 e.enrollment_flow()
         
         Note:
-            Enrollment Status Changes
+            Enrollment - Status Changes
         '''
         
         query = f'''
@@ -1810,7 +1908,7 @@ class Queries(Audits):
                 e.incident_tally()
         
         Note:
-            Critical Incident Count - Notification Type
+            Mediations/Critical Incidents - Count by Notification Type
         '''
 
         query = f'''SELECT count(case when how_hear regexp '.*CPIC.*' then incident_id else null end) as CPIC,
@@ -1825,7 +1923,7 @@ class Queries(Audits):
         counts incidents in timeframe, distinguishing between fatal and non-fatal events
         
         Note:
-            Critical Incident Count - Incident Type
+            Mediations/Critical Incidents - Count by Incident Type
         '''
         
         query = f'''SELECT type_incident,
@@ -1848,7 +1946,7 @@ class Queries(Audits):
                 e.incident_response()
         
         Note:
-            Critical Incident Response Count
+            Mediations/Critical Incidents - Count by Response Type
         '''
 
         query = f'''select count(incident_id) as total_incidents, 
@@ -1869,7 +1967,7 @@ class Queries(Audits):
                 e.isp_goal_tracker()
         
         Note:
-            ISP Completion by Goal Area
+            ISPs - Completion Rate by Goal Area
         '''
 
         query = f'''SELECT goal_domain, count(case when latest_status = 'in progress' then participant_id else null end) as in_progress,
@@ -1902,7 +2000,7 @@ class Queries(Audits):
                 e.isp_tracker(summary_table=True, service_days_cutoff=60)
         
         Note:
-            ISP Status (Individual or Grouped)
+            ISPs - Status Tables (Individual or Grouped)
         '''
 
         if just_cm == True:
@@ -1981,7 +2079,7 @@ class Queries(Audits):
                 e.isp_discharged(missing_names=True)
         
         Note:
-            ISP Completion for Discharged Clients
+            ISPs - Completion Rates for Discharged Clients
 
         '''
 
@@ -2055,7 +2153,7 @@ class Queries(Audits):
                 e.legal_bonanza(timeframe=True, case_stage='ended', grouping_cols='case_outcome', wide_col='violent')
         
         Note:
-            Legal Information (Flexible)
+            Legal - Flexible Master Function
         '''
         if 'a2j_' in self.table:
             base_table = f'''with base as (
@@ -2169,7 +2267,7 @@ class Queries(Audits):
                 e.legal_rearrested()
         
         Note:
-            Recidivism
+            Legal - Recidivism Rates
         '''
 
         distinct = 'distinct ' if client_level else ''
@@ -2211,7 +2309,7 @@ class Queries(Audits):
                 e.legal_rjcc()
         
         Note:
-            RJCC Enrollment in MyCase
+            Legal - RJCC Enrollment in MyCase
         '''
         base_where = f"and (stage_end is null or stage_end >= {self.q_t1}) and stage_start <= {self.q_t2}" if not timeframe else ''
         final_where = f'where case_outcome_date is null or case_outcome_date >= {self.q_t1}' if not timeframe else ''
@@ -2239,7 +2337,7 @@ class Queries(Audits):
         Returns completed education linkages in timeframe
 
         Note:
-            Completed Education Linkages
+            Linkages - Completed Education Linkages in Timeframe
         '''
         query = f'''select participant_id, linkage_org, comments from neon.linkages
         join (select distinct participant_id from  {self.table}) n using(participant_id)
@@ -2279,7 +2377,7 @@ class Queries(Audits):
                 e.linkages_edu_employ(new_client_threshold = 275)
         
         Note:
-            Education and Employment Linkage Table
+            Linkages - Big Education and Employment Table
         '''
 
         workforce = '|Workforce Development' if include_wfd else ''
@@ -2342,7 +2440,7 @@ class Queries(Audits):
         Returns new education/employment linkages in timeframe
 
         Note:
-            New Education and Employment Linkages
+            Linkages - New Education and Employment Connections
         '''
         query = f'''select linkage_type, count(distinct participant_id) participants from neon.linkages
         join (select distinct participant_id from {self.table}
@@ -2364,7 +2462,7 @@ class Queries(Audits):
             idhs_edu_employ: count education linkages for employment goals. Defaults to False
 
         Note:
-            Linkages for ISP Goal Areas
+            Linkages - Connections by ISP Goal Area
         '''
 
         query = f'''
@@ -2484,7 +2582,7 @@ from (select * from total_row
                 e.linkages_monthly(lclc_initiated=False)
         
         Note:
-            Number of Clients Linked by Time Period
+            Linkages - Number of Clients Linked in Time Period
         '''
 
 
@@ -2529,7 +2627,7 @@ from (select * from total_row
             first_n_months (int): only count linkages received in a clients first N months. Defaults to None
         
         Note:
-            Percent of Clients with a Linkage
+            Linkages - Percent of Clients with a Connection
         '''
         timeframe_statement = f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''
         cm_only_statement = "where service_type = 'Case Management'" if cm_only else ''
@@ -2604,7 +2702,7 @@ from (select * from total_row
                 e.linkages_tally(distinct_clients=True, group_by='linkage_org', link_started=True, link_ongoing=True)
         
         Note:
-            Linkage Information (Flexible)
+            Linkages - Flexible Master Function
         '''
 
         service_statement = "where service_type = 'case management'" if just_cm else ''
@@ -2648,7 +2746,7 @@ from (select * from total_row
             link_ongoing (Bool): Only include linkages with no end date. Defaults to False
 
         Note:
-            Linkage Totals
+            Linkages - Total Connections Made
         '''
         service_statement = "where service_type = 'case management'" if just_cm else ''
         
@@ -2690,7 +2788,7 @@ from (select * from total_row
                 e.outreach_elig_tally(outreach_only=False)
         
         Note:
-            Outreach Eligibility Form Responses
+            Outreach - Eligibility Form Responses
         '''
         where_statement = f'''where service_type = 'outreach''' if outreach_only else ''
         where_statement = f'''where program_start between {self.q_t1} and {self.q_t2} and program_type regexp "chd.*|community navigation.*|violence.*"''' if new_clients else ''
@@ -2729,7 +2827,7 @@ from (select * from total_row
             timeframe (Bool): Whether to only include mediations in the timeframe. Defaults to True
         
         Note:
-            Mediation Count
+            Mediations/Critical Incidents - Count
         '''
 
         ''''''
@@ -2762,7 +2860,7 @@ from (select * from total_row
                 e.session_tally(session_type='Outreach', distinct_participants=False)
         
         Note:
-            CM or Outreach Session Tally
+            Case Sessions - CM or Outreach Session Tally
         '''
 
         session_type = f"'{session_type}'"
@@ -2799,7 +2897,7 @@ from (select * from total_row
                 e.session_frequency(session_type="Outreach")
         
         Note:
-            CM or Outreach Session Frequency
+            Case Sessions - CM or Outreach Session Frequency
         '''
 
         session_type = f"'{session_type}'"
@@ -3001,7 +3099,7 @@ class Grants(Queries):
         Returns Demographics for the ICJIA - CVI report
 
         Note:
-            ICJIA - CVI Demographics
+            Grants: ICJIA - CVI Demographics
         '''
         query = f'''with ages as(
         select 'age','0-5' as age_range, count(distinct case when new_client = 'continuing' then participant_id else null end) 'continuing',
@@ -3070,7 +3168,7 @@ select * from ages'''
         ICJIA - CVI Mental Health Linkages
 
         Note:
-            ICJIA - CVI Mental Health Linkages
+            Grants: ICJIA - CVI Mental Health Linkages
         '''
 
         query = f'''
@@ -3093,7 +3191,7 @@ select * from ages'''
                 e.cvi_post_incident()
         
         Note:
-            ICJIA - CVI Recieved Services after Shooting
+            Grants: ICJIA - CVI Recieved Services after Shooting
         '''
         query = f'''
         select type_incident, sum(num_individuals) as total_ppl from neon.critical_incidents
@@ -3114,7 +3212,7 @@ select * from ages'''
                 e.idhs_enrollment()
         
         Note:
-            IDHS - VP Enrollment
+            Grants: IDHS - VP Enrollment
         '''
 
         query = f'''select 'TOTAL' as 'clients', count(distinct case when new_client = 'new' then participant_id else null end) as new,
@@ -3148,7 +3246,7 @@ select * from ages'''
                 e.idhs_race_gender('gender')
         
         Note:
-            IDHS - VP Client Races or Genders
+            Grants: IDHS - VP Client Races or Genders
         '''
 
         query = f'''
@@ -3171,7 +3269,7 @@ select * from ages'''
                 e.idhs_language()
         
         Note:
-            IDHS - VP Client Languages
+            Grants: IDHS - VP Client Languages
         '''
         query = f'''select new_client, language_primary, count(distinct participant_id)
         from {self.table}
@@ -3196,7 +3294,7 @@ select * from ages'''
                 e.idhs_age(False)
         
         Note:
-            IDHS - VP Client Ages
+            Grants: IDHS - VP Client Ages
         '''
         if cvi:
             query = f'''
@@ -3268,7 +3366,7 @@ select * from ages'''
                 e.idhs_linkages(True)
         
         Note:
-            IDHS - VP Linkage Table
+            Grants: IDHS - VP Linkage Table
         
         '''
         
@@ -3300,7 +3398,7 @@ select * from ages'''
                 e.idhs_linkages_detailed()
 
         Note:
-            IDHS - VP Extended Linkage Table
+            Grants: IDHS - VP Extended Linkage Table
         '''
         def in_kind_services():
             ### FIX FIX FIX
@@ -3418,7 +3516,7 @@ select * from ages'''
                 e.idhs_incidents(False)
         
         Note:
-            IDHS - VP Incident Tally
+            Grants: IDHS - VP Incident Tally
         '''
         if CPIC:
             query = f'''SELECT type_incident,
@@ -3444,7 +3542,7 @@ select * from ages'''
                 e.idhs_r_schooling_gender()
         
         Note:
-            IDHS - R Client Genders/School Statuses
+            Grants: IDHS - R Client Genders/School Statuses
         '''
 
         query = f'''
@@ -3474,7 +3572,7 @@ select * from ages'''
                 e.idhs_r_age_gender()
         
         Note:
-            IDHS - R Client Ages/Genders
+            Grants: IDHS - R Client Ages/Genders
         '''
 
         query = f'''
@@ -3537,7 +3635,7 @@ select * from ages'''
         Returns client ages for groups 6-11, 12-14, 15-17, 18-25, 26+
         
         Note:
-            ICJIA - R3 Client Ages
+            Grants: ICJIA - R3 Client Ages
         '''
 
         query = f'''
@@ -3581,7 +3679,7 @@ select * from ages'''
         Returns client ages for groups 0-11, 11-13, 14-17, 18-21, 22+
 
         Note:
-            IDHS - RYDS Client Ages
+            Grants: IDHS - RYDS Client Ages
         '''
 
         query = f'''
@@ -3614,7 +3712,7 @@ select * from ages'''
         Parameters:
             summary_table: True returns a table with bins matching the PPR report. False returns one row per client, with information on which units are missing.
         Note:
-            IDHS - RYDS Cirriculum Completion
+            Grants: IDHS - RYDS Cirriculum Completion
         '''
         
         query = f'''
