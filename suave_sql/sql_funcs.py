@@ -1385,7 +1385,7 @@ class Queries(Audits):
         union all
         select 'Total: Any Assessment',
         count(distinct participant_id) num_assessed, 
-        count(distinct case when assessed_in_30 = total_assessed then participant_id else null end) assessed_in_30
+        count(distinct case when assessed_in_30 > 0 then participant_id else null end) assessed_in_30
         from (select participant_id, count(distinct assess_type) total_assessed,
         count(distinct case when time_between <= 31 then assess_type end) assessed_in_30
         from longie
