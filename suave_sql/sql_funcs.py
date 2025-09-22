@@ -3643,7 +3643,7 @@ select * from ages'''
         '''
         
         if summary_table:
-            addendum = 'select completion_group, count(distinct participant_id) count from big_table group by completion group'
+            addendum = 'select completion_group, count(distinct participant_id) count from big_table group by completion_group'
             query = query + ' ' + addendum
             df = self.query_run(query)
             return df
