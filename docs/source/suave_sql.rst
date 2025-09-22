@@ -16,7 +16,7 @@ Specific-Use Functions
 --------------------------------------------------
 
 .. automodule:: sql_funcs
-   :members: Audits, ReferralAsks, IDHS
+   :members: Audits, ReferralAsks, Grants
    :undoc-members: clipboard_decorator
    :show-inheritance: False
 
