@@ -759,12 +759,13 @@ class Audits(Tables):
         df = self.query_run(query)
         return(df)
 
-    def legal_audit_lawyers(self, func_dict = None):
+    def legal_audit_lawyers(self, active_only = True, new_cases_only = False):
         '''
         Returns several joined tables of missing legal data
 
         Parameters:
-            func_dict: a dictionary of functions to use
+            active_only: Only look at active cases. Defaults to True
+            new_cases_only: Only look at new cases in the timeframe. Defaults to False
 
         Note:
             Audit - Legal Data
@@ -923,14 +924,13 @@ class Audits(Tables):
             df = self.query_run(query)
             return(df)
 
-        if not func_dict:
-            func_dict = {
-            'missing_from_neon': (missing_from_neon, (True,False,)),
-            'missing_felony_class': (missing_felony_class, (True,False,)),
-            'caseid_NAN': (caseid_NAN, (True,False,)),
-            'misaligned_attorneys': (misaligned_attorneys, (True,False,)),
-            'custody_status': (custody_status, (True,False,)),
-            'undated_outcome': (undated_outcome, (True,False,)),
+        func_dict = {
+            'missing_from_neon': (missing_from_neon, (active_only,new_cases_only,)),
+            'missing_felony_class': (missing_felony_class, (active_only,new_cases_only,)),
+            'caseid_NAN': (caseid_NAN, (active_only,new_cases_only,)),
+            'misaligned_attorneys': (misaligned_attorneys, (active_only,new_cases_only,)),
+            'custody_status': (custody_status, (active_only,new_cases_only,)),
+            'undated_outcome': (undated_outcome, (active_only,new_cases_only,)),
         }
         
         result_dict = {}
@@ -2087,7 +2087,7 @@ class Queries(Audits):
         with discharged_isps as(
         select first_name, last_name, participant_id, isp_start, latest_update, total_goals, goals_completed, goals_in_progress, goals_discontinued, 
         goals_unstarted from neon.isp_tracker
-        right join (select * from {self.table} where service_type = 'case management' and (service_end is not null or program_end is not null)) o using(participant_id))
+        right join (select * from {self.table} where service_type = 'case management' and (service_end between {self.q_t1} and {self.q_t2} or program_end between {self.q_t1} and {self.q_t2})) o using(participant_id))
         '''
 
         if missing_names:
@@ -2451,13 +2451,13 @@ class Queries(Audits):
         df = self.query_run(query)
         return(df)
 
-    def linkages_isp_goals(self, lclc_initiated = True, timeframe_only = False, discharged_only = False, idhs_edu_employ = False):
+    def linkages_isp_goals(self, lclc_initiated = True, timeframe = False, discharged_only = False, idhs_edu_employ = False):
         '''
         Returns a table of the number of clients with an active, concluded, or unstarted linkage for an ISP goal domain. Also has a row for # of clients who have a linkage for at least one goal  
         
         Parameters:
             lclc_initiated: only include non-client-initiated linkages. Defaults to True
-            timeframe_ony: only include linkages made in the timeframe. Defaults to False
+            timeframe: only include linkages made in the timeframe. Defaults to False
             discharged_only: only include discharged clients. Defaults to False
             idhs_edu_employ: count education linkages for employment goals. Defaults to False
 
@@ -2492,7 +2492,7 @@ long_link as (select participant_id, linkage_id,
   from neon.linkages
 join parts using(participant_id)
 where (program_start <= start_date or program_start <= linked_date) and linkage_type is not null
-{f'and linked_date between {self.q_t1} and {self.q_t2}' if lclc_initiated else ''} {f'and client_initiated = "no"' if lclc_initiated else ''}),
+{f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''} {f'and client_initiated = "no"' if lclc_initiated else ''}),
 
 extra_long_link as (
   select * from long_link
@@ -2842,7 +2842,7 @@ from (select * from total_row
         return df
 
     @clipboard_decorator
-    def session_tally (self, session_type = 'Case Management', distinct_participants=True):
+    def session_tally(self, session_type = 'Case Management', distinct_participants=True):
         '''
         Tallies the number of sessions, or number of clients in the timeframe
 
@@ -2878,7 +2878,33 @@ from (select * from total_row
         '''
         df = self.query_run(query)
         return(df)
-    
+    @clipboard_decorator
+    def session_avg_time_per_client(self, session_type = 'Case Management'):
+        '''
+        Finds the average time spent in sessions per client in a timeframe. 
+        
+        Parameters:
+            session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
+        
+                Note:
+            Case Sessions - Average Time Spent in Sessions
+        '''
+        session_type = f"'{session_type}'"
+        query = f'''
+with sess as (select * from neon.case_sessions where session_date between {self.q_t1} and {self.q_t2} and contact_type = {session_type}),
+parts as (select distinct participant_id from {self.table} where service_type = {session_type})
+
+select sum(total_minutes) total_minutes,count(distinct participant_id) total_clients,
+  ROUND(sum(total_minutes)/count(distinct participant_id), 1) avg_minutes,
+  count(distinct case when contact_type is not null then participant_id end) total_clients_w_session,
+  round(sum(total_minutes)/count(distinct case when contact_type is not null then participant_id end), 1) avg_minutes_w_session
+  from parts
+left join sess using(participant_id)        
+        '''
+        df = self.query_run(query)
+        return(df)
+
+
     @clipboard_decorator
     def session_frequency(self, session_type = 'Case Management'):
         '''
@@ -3086,7 +3112,21 @@ class ReferralAsks(Queries):
 class Grants(Queries):
     def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon",mycase = True,cloud_run=False,grant_type='idhs'):
         '''
-        grant_types: 'idhs', 'idhs_r', 'r3', 'scan', 'ryds'
+        Establishes a Queries object with a grant-specific default table.
+        
+        Parameters: 
+            t1: start date, formatted as "YYYY-MM-DD"
+            t2: end date, formatted as "YYYY-MM-DD"
+            print_sql(Bool): whether to print the SQL statements when run, defaults to True
+            clipboard(Bool): whether to copy the output table to your clipboard, defaults to False
+            default_table: the source table to run queries on. defaults to "stints.neon", can also use "stints.neon_chd", or a participants table
+            mycase(Bool): whether the user has a formatted MyCase SQL database, defaults to True
+            grant_types: grant for the default table. Options ['idhs', 'idhs_r', 'r3', 'scan', 'ryds', 'jac', 'cvi']
+
+        Example:
+            Set default table to IDHS VP clients for CY25Q3
+            
+            e = Grants(t1='2025-07-01', t2='2025-09-30', engine=neon_engine, clipboard=True, default_table='stints.neon',grant_type='idhs')
         '''
         
         super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
