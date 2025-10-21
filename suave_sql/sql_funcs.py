@@ -296,57 +296,6 @@ grant_start start_date, grant_end end_date
 from merged)
 ;
 
-drop table if exists neon.service_staff;
-
-create table neon.service_staff as (
-
-with vs_ids as (
-select assigned_staff_id, 'vs' from neon.assigned_staff
-join (select participant_id, service_start, service_end from neon.services
-where service_type = 'victim services') vs using(participant_id)
-where full_name = 'Whitney Scott'),
-
-staff_table as (
-select participant_id, staff_name, staff_type,
-case when staff_type = 'Case Manager' then "Case Management"
-	when staff_type = 'Assigned Attorney' then "Legal"
-    when staff_type = "Outreach Worker" then "Outreach"
-    when staff_type = 'Therapist' then 'Therapy'
-    when staff_type = 'Victim Services Advocate' then "Victim Services" end
-    as service_type,
-    staff_start_date staff_start,
-    staff_end_date staff_end
-from
-(select participant_id, full_name staff_name, case when vs is not null then "Victim Services Advocate" else staff_type end staff_type,
-staff_start_date, staff_end_date
-from (select * from neon.assigned_staff
-left join vs_ids using(assigned_staff_id)) v) vv),
-
-abr_staff as(
-select participant_id, service_id, staff_name, staff_start, staff_end from neon.services
-left join staff_table using(participant_id, service_type)
-where datediff(staff_start, service_start) > -100 and (service_end is null or (service_end >= staff_start)) and (staff_end is null or staff_end >= service_start)),
-
-abr_w_rn as(select participant_id, service_id, staff_name, staff_start, staff_end, case when rn != 1 and staff_end is null then 1 else rn end rn
-from (
-select *, ROW_NUMBER() OVER (partition by service_id ORDER BY case when staff_end is null then 1 else 2 end, staff_end DESC) AS rn
-from abr_staff) abr),
-
-service_table as (
-select service_id, group_concat(staff_name order by staff_start desc SEPARATOR ', ') assigned_staff, max(staff_start) staff_start, max(staff_end) staff_end
-from 
-(select * from abr_w_rn where rn = 1) ab
-group by participant_id, service_id),
-
-latest_service as (select participant_id, service_id, service_type, latest_service from neon.services
-left join (select participant_id, service_type, max(service_start) service_start, 1 as latest_service from neon.services
-group by participant_id, service_type) s using (participant_id, service_type, service_start))
-
-select participant_id, service_id, service_type, case when assigned_staff is null then "MISSING" else assigned_staff end assigned_staff,
-staff_start, staff_end, latest_service from
-(select * from latest_service
-left join service_table using(service_id)) s);
-
 DROP TABLE IF EXISTS `stints`.`stint_count`;
 create table stints.stint_count as(
 WITH date_groups AS (
@@ -1820,7 +1769,7 @@ class Queries(Audits):
         df = self.query_run(query)
         return(df)
 
-    def enrollment_bundles(self):
+    def enrollment_bundles(self, enrollment_level = 'program'):
         '''
         Counts clients by their bundle of programs
 
@@ -1829,11 +1778,14 @@ class Queries(Audits):
                 
                 e.enrollment_bundles()
         
+        Parameters:
+            enrollment_level: 'program' or 'grant'
         Note:
             Enrollment - Client Program Combinations
         '''
         query = f'''select prog, count(distinct participant_id) from
-        (select participant_id, group_concat(distinct program_type) prog from stints.neon
+        (select participant_id, group_concat(distinct {enrollment_level}_type) prog from stints.neon
+        where (program_end is null or program_end > {self.q_t1}) and (service_end is null or service_end > {self.q_t1}) and (grant_end is null or grant_end > {self.q_t1})
         group by participant_id) s
         group by prog'''
         df = self.query_run(query)
