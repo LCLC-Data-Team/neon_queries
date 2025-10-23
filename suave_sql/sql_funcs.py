@@ -1720,6 +1720,58 @@ class Queries(Audits):
         df = self.query_run(query)
         return(df)
     
+    def dem_edu_employ_tracker(self):
+        '''Makes a big, yucky table of education/employment data from linkages + intake'''
+        def set_query(new_client_col = True):
+            query = f'''
+            with idhs as (select * from {self.table}),
+            mini_idhs as(select distinct(participant_id), first_name, last_name, program_start,  case_managers as case_manager, outreach_workers outreach_worker from idhs),
+
+            employ as (select participant_id, linkage_org as job_name, start_date job_start, end_date job_end, employ_full_part full_or_part_time, comments job_comments from(
+            select participant_id, linkage_type, linkage_org, start_date, end_date, employ_full_part, comments,
+            ROW_NUMBER() OVER (partition by participant_id ORDER BY CASE WHEN end_date IS NULL THEN 0 ELSE 1 END ASC, end_date DESC) AS rn 
+            from neon.linkages
+            join (select distinct participant_id from idhs)i using(participant_id)
+            where start_date is not null and linkage_type regexp "employ.*|work.*"
+            order by participant_id, end_date asc) em
+            where rn = 1),
+            edu as (select participant_id, school, school_start, school_end, current_school, school_comments from (select participant_id, linkage_org school, start_date school_start, end_date school_end, educ_current_school current_school, comments school_comments,
+            ROW_NUMBER() OVER (partition by participant_id ORDER BY CASE WHEN end_date IS NULL THEN 0 ELSE 1 END ASC, end_date DESC) AS rn 
+            from neon.linkages
+            join (select distinct participant_id from idhs)i using(participant_id)
+            where start_date is not null and linkage_type regexp "educat.*"
+            order by participant_id, end_date asc) ed
+            where rn = 1),
+            intake_info as (
+            select participant_id, intake_date, have_diploma_ged, currently_enrolled, last_grade_completed, currently_employed from (select distinct participant_id from idhs) ii
+            join (select participant_id, max(intake_date) intake_date from neon.intake group by participant_id) i using(participant_id)
+            join neon.intake using(participant_id, intake_date)),
+            big_table as(
+            select * from mini_idhs
+            left join intake_info using(participant_id)
+            left join employ using(participant_id)
+            left join edu using(participant_id))
+
+            select participant_id, {'new_client, ' if new_client_col else ''}
+            case when job_start is not null and (job_end is null or job_end >= {self.q_t2}) then 'Yes'
+                when (job_end is not null or job_end < {self.q_t2}) then 'No'
+                else currently_employed end as currently_employed,
+                full_or_part_time, 
+            case when school_start is not null and (school_end is null or school_end >= {self.q_t2}) and (current_school is null or current_school = 'Yes')then 'Yes'
+                when (school_end is not null and school_end < {self.q_t2}) then 'No'
+                else currently_enrolled end as currently_enrolled, have_diploma_ged,
+                last_grade_completed
+            from big_table
+            '''
+            return query
+        try:
+            query = set_query(True)
+            df = self.query_run(query)
+        except Exception as e:
+            query = set_query(False)
+            df = self.query_run(query)
+        return df
+
     @clipboard_decorator
     def enrollment(self, program_type = False, service_type = False, grant_type = False):
         '''
@@ -1847,6 +1899,62 @@ class Queries(Audits):
 
         '''
 
+        df = self.query_run(query)
+        return df
+
+    def enrollment_monthly(self, program_type=False, service_type=False, grant_type=False, distinct_clients=True):
+        '''
+        Returns a count of clients, with options to break down by program, service, and/or grant for each month in the timeframt
+
+        Parameters:
+            program_type(Bool): distinguish by program, defaults to False
+            service_type(Bool): distinguish by service, defaults to False
+            grant_type(Bool): distinguish by grant, defaults to False
+            distinct_clients(Bool): count distinct clients (True) or distinct services (False). Defaults to True
+
+        Examples:
+            Get the total number of clients enrolled::
+
+                e.enrollment()
+
+            Get the number of clients enrolled in each program::
+
+                e.enrollment(program_type=True)
+            
+            Get the number of clients receiving each service for every program::
+
+                e.enrollment(program_type=True, service_type=True)
+
+            Get the number of clients receiving each service on a grant::
+
+                e.enrollment(service_type=True, grant_type=True)
+        
+        Note:
+            Enrollment - Monthly Clients (overall or by program/service/grant)
+        '''
+        months_list = []
+
+        for month_start, month_end in zip(pd.date_range(start=self.t1, end=self.t2, freq = 'MS'), pd.date_range(start=self.t1, end=self.t2, freq = 'ME')):
+            months_list.append(f"count({'distinct' if distinct_clients else ''} case when (end_date is null or end_date >='{month_start.strftime('%Y-%m-%d')}') and start_date <='{(month_end.strftime('%Y-%m-%d'))}' then participant_id else null end) as '{(month_start.strftime('%B %Y'))}'")
+
+        months_str = ', '.join(str(st) for st in months_list)
+        types_list = []
+
+        if program_type:
+            types_list.append('program_type')
+        if service_type:
+            types_list.append('service_type')
+        if grant_type:
+            types_list.append('grant_type')
+
+        if types_list:
+            types_str = ', '.join(str(st) for st in types_list)
+            query = f'''select {types_str}, {months_str}
+            from neon.bi_psg
+            group by {types_str}'''
+        else:
+            query = f'''select count(distinct participant_id) count, {months_str}
+            from neon.bi_psg'''
         df = self.query_run(query)
         return df
     
@@ -3399,7 +3507,7 @@ select * from ages'''
             count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
             from stints.neon
-            join (select distinct participant_id, new_client from participants.idhs) i using(participant_id)
+            join (select distinct participant_id, new_client from {self.table}) i using(participant_id)
             where grant_type not like "IDHS VP"
             group by service_type'''
             df = self.query_run(query)
@@ -3407,7 +3515,7 @@ select * from ages'''
 
         def assessments_plus():
             query = f'''
-            with part as (select distinct participant_id, new_client from participants.idhs),
+            with part as (select distinct participant_id, new_client from {self.table}),
 
             isp_updates as(select 'Received an ISP update' detail_service_type, count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing from (select * from isp_tracker
@@ -3438,7 +3546,7 @@ select * from ages'''
             count(distinct case when new_client = 'continuing' then participant_id else null end) as cont_in_kind
             from (
             select p.participant_id, new_client, contact_type, session_date, description from neon.case_sessions c
-            join (select participant_id, new_client, service_type from participants.idhs) p on p.participant_id = c.participant_id and p.service_type = c.contact_type
+            join (select participant_id, new_client, service_type from {self.table}) p on p.participant_id = c.participant_id and p.service_type = c.contact_type
             where (session_date between {self.q_t1} and {self.q_t2}) and successful_contact = 'Yes') i
             group by contact_type)
 
@@ -3459,7 +3567,7 @@ select * from ages'''
             query = f'''
 
             with sess as(select participant_id, focus_contact, contact_type, new_client, description from neon.case_sessions
-            join (select distinct participant_id, new_client from participants.idhs where service_type = 'case management') i using(participant_id)
+            join (select distinct participant_id, new_client from {self.table} where service_type = 'case management') i using(participant_id)
             where (session_date between {self.q_t1} and {self.q_t2}) and successful_contact = 'Yes' and focus_contact is not null),
             separated as
             (select participant_id, new_client, contact_type, SUBSTRING_INDEX(SUBSTRING_INDEX(focus_contact, ', ', n), ', ', -1) AS separated_focus
