@@ -421,10 +421,10 @@ ORDER BY participant_id, stint_start);
 
         return result_dict
 
-    def run_projections(self, func_dict, *args, **kwargs):
+    def run_projections(self, func_dict, include_qtd = False, *args, **kwargs):
         '''
         runs a report of grant projections
-        function dictionary follows formt{grant_name:{func_dict}}
+        function dictionary follows format{grant_name:{func_dict}}
         '''
         def combine_initial_dictionaries():
             output_dict = {}
@@ -442,12 +442,17 @@ ORDER BY participant_id, stint_start);
                 time_phases_dict = {'last_month':{
                     'table_name':f'grant_projections.{grant_name}_lmonth',
                     'phase_start': prev_first_str,
-                    'phase_end': prev_last_str},
-                'ytd':{
+                    'phase_end': prev_last_str}}
+                if include_qtd:
+                    time_phases_dict['qtd'] = {
+                    'table_name':f'grant_projections.{grant_name}_qtd',
+                    'phase_start':quarter_start,
+                    'phase_end':quarter_end}
+                time_phases_dict['ytd'] = {
                     'table_name':f'grant_projections.{grant_name}_full',
                     'phase_start':grant_start,
                     'phase_end':grant_end}
-                }
+                
                 outputs = {}
                 for phase_name, phase_dict in time_phases_dict.items():
                     phase_table = phase_dict['table_name']
@@ -525,6 +530,8 @@ ORDER BY participant_id, stint_start);
         prev_first = prev_last.replace(day=1)
         prev_last_str = f"'{prev_last.strftime('%Y-%m-%d')}'"
         prev_first_str = f"'{prev_first.strftime('%Y-%m-%d')}'"
+        quarter_start = f"'{(pd.Timestamp.now() - pd.offsets.QuarterBegin()).strftime('%Y-%m-%d')}'"
+        quarter_end =f"'{(pd.Timestamp.now() + pd.offsets.QuarterEnd()).strftime('%Y-%m-%d')}'"
         
         #doesn't actually matter much, 
 
