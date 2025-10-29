@@ -25,6 +25,7 @@ class Report:
             report_type: The sql_funcs object to use. Options include Audits, IDHS, ReferralAsks, Queries. Defaults to Queries
             interval: (optional) The date intervals within the time period to run the report over. 'MS' for month, '3MS' for quarter, 'YS' for year. Defaults to None
             group_by_interval (Bool): (optional) True groups a series of reports by time interval, False groups by each query. Defaults to False
+            projections (Bool): whether to run projections for grants based on grant start/end. Defaults to False
 
         Examples:
             Sample report_functions::
@@ -65,24 +66,27 @@ class Report:
         self.end_date = end_date
         self.report_type = report_type
         self.grant_dict = {
-            'idhs': {'grant_name':'IDHS VP',
-                    'grant_start':'2025-02-01',
-                    'grant_end':'2025-06-30'},
-            'idhs_r':{'grant_name':'IDHS - R',
-                    'grant_start':'2024-07-01',
-                    'grant_end':'2025-06-30'},
-            'cvi':{'grant_name':'ICJIA - CVI',
-                    'grant_start':'2024-10-01',
-                    'grant_end':'2025-09-30'},
-            'r3':{'grant_name':'ICJIA - R3',
-                    'grant_start':'2024-11-01',
-                    'grant_end':'2025-10-30'},
-            'scan':{'grant_name':'DFSS - SCAN',
-                    'grant_start':'2025-01-01',
-                    'grant_end':'2025-12-31'},
-            'ryds':{'grant_name':'IDHS - RYDS',
-                    'grant_start':'2024-10-01',
-                    'grant_end':'2025-09-30'},}
+'a2j': {'grant_name':'A2J',
+        'grant_start':'"2025-07-01"',
+        'grant_end':'"2026-06-30"'},
+'idhs': {'grant_name':'IDHS VP',
+        'grant_start':"2025-07-01",
+        'grant_end':'"2026-06-30"'},
+'cvi':{'grant_name':'ICJIA - CVI',
+        'grant_start':'"2025-10-01"',
+        'grant_end':'"2026-09-30"'},
+'r3':{'grant_name':'ICJIA - R3',
+        'grant_start':'"2024-11-01"',
+        'grant_end':'"2025-10-30"'},
+'scan':{'grant_name':'DFSS - SCAN',
+        'grant_start':'"2025-01-01"',
+        'grant_end':'"2025-12-31"'},
+'ryds':{'grant_name':'IDHS - RYDS',
+        'grant_start':'"2025-10-01"',
+        'grant_end':'"2026-09-30"'},
+'jac':{'grant_name': 'JAC - CVI',
+        'grant_start':'"2025-08-01"',
+        'grant_end':'"2027-07-31"'}}
         self.projections = projections
         if not interval:
             self.run_a_report()

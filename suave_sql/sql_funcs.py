@@ -57,31 +57,27 @@ class Tables:
         self.con = self.engine.connect().execution_options(autocommit=True)
         self.stints_cloud_run() if cloud_run else self.stints_run()
         self.grant_dict = {
-            'a2j': {'grant_name':'A2J',
-                    'grant_start':'"2025-07-01"',
-                    'grant_end':'"2026-06-30"'},
-            'idhs': {'grant_name':'IDHS VP',
-                    'grant_start':'"2025-07-01"',
-                    'grant_end':'"2026-06-30"'},
-            'idhs_r':{'grant_name':'IDHS - R',
-                    'grant_start':'"2024-07-01"',
-                    'grant_end':'"2025-06-30"'},
-            'cvi':{'grant_name':'ICJIA - CVI',
-                    'grant_start':'"2024-10-01"',
-                    'grant_end':'"2025-09-30"'},
-            'r3':{'grant_name':'ICJIA - R3',
-                    'grant_start':'"2024-11-01"',
-                    'grant_end':'"2025-10-30"'},
-            'scan':{'grant_name':'DFSS - SCAN',
-                    'grant_start':'"2025-01-01"',
-                    'grant_end':'"2025-12-31"'},
-            'ryds':{'grant_name':'IDHS - RYDS',
-                    'grant_start':'"2024-10-01"',
-                    'grant_end':'"2025-09-30"'},
-            'jac':{'grant_name': 'JAC - CVI',
-                    'grant_start':'"2025-08-01"',
-                    'grant_end':'"2027-07-31"'},
-                    }
+'a2j': {'grant_name':'A2J',
+        'grant_start':'"2025-07-01"',
+        'grant_end':'"2026-06-30"'},
+'idhs': {'grant_name':'IDHS VP',
+        'grant_start':'"2025-07-01"',
+        'grant_end':'"2026-06-30"'},
+'cvi':{'grant_name':'ICJIA - CVI',
+        'grant_start':'"2025-10-01"',
+        'grant_end':'"2026-09-30"'},
+'r3':{'grant_name':'ICJIA - R3',
+        'grant_start':'"2024-11-01"',
+        'grant_end':'"2025-10-30"'},
+'scan':{'grant_name':'DFSS - SCAN',
+        'grant_start':'"2025-01-01"',
+        'grant_end':'"2025-12-31"'},
+'ryds':{'grant_name':'IDHS - RYDS',
+        'grant_start':'"2025-10-01"',
+        'grant_end':'"2026-09-30"'},
+'jac':{'grant_name': 'JAC - CVI',
+        'grant_start':'"2025-08-01"',
+        'grant_end':'"2027-07-31"'}}
 
 
     def query_run(self, query):
@@ -421,7 +417,7 @@ ORDER BY participant_id, stint_start);
 
         return result_dict
 
-    def run_projections(self, func_dict, include_qtd = False, *args, **kwargs):
+    def run_projections(self, func_dict, *args, **kwargs):
         '''
         runs a report of grant projections
         function dictionary follows format{grant_name:{func_dict}}
@@ -442,17 +438,16 @@ ORDER BY participant_id, stint_start);
                 time_phases_dict = {'last_month':{
                     'table_name':f'grant_projections.{grant_name}_lmonth',
                     'phase_start': prev_first_str,
-                    'phase_end': prev_last_str}}
-                if include_qtd:
-                    time_phases_dict['qtd'] = {
+                    'phase_end': prev_last_str},
+                    'qtd':{
                     'table_name':f'grant_projections.{grant_name}_qtd',
                     'phase_start':quarter_start,
-                    'phase_end':quarter_end}
-                time_phases_dict['ytd'] = {
+                    'phase_end':quarter_end},
+                    'ytd':{
                     'table_name':f'grant_projections.{grant_name}_full',
                     'phase_start':grant_start,
                     'phase_end':grant_end}
-                
+                    }
                 outputs = {}
                 for phase_name, phase_dict in time_phases_dict.items():
                     phase_table = phase_dict['table_name']
@@ -479,8 +474,16 @@ ORDER BY participant_id, stint_start);
         
         def percent_grant_complete(grant_start, grant_end):
             # finish this 
-            gstart = datetime.strptime(grant_start, '"%Y-%m-%d"').date()
-            gend = datetime.strptime(grant_end, '"%Y-%m-%d"').date()
+            try:
+                gstart = datetime.strptime(grant_start, '"%Y-%m-%d"').date()
+            except Exception:
+                gstart = datetime.strptime(grant_start, '%Y-%m-%d').date()
+            
+            try:
+                gend = datetime.strptime(grant_end, '"%Y-%m-%d"').date()
+            except Exception:
+                gend = datetime.strptime(grant_end, '%Y-%m-%d').date()
+
             pct_complete = ((prev_last - gstart).days / (gend - gstart).days)
             projection_reciprocal = (1 / pct_complete)
             return projection_reciprocal
@@ -490,11 +493,31 @@ ORDER BY participant_id, stint_start);
             for grant_name, output_dict in func_dict.items():
                 formatted_outs = {}
                 for query_name, query_df in output_dict['outputs']['ytd'].items():
+                    print(grant_name, query_name, query_df)
                     non_numeric_cols = query_df.select_dtypes(exclude=[np.number]).columns.tolist()
                     numeric_cols = query_df.select_dtypes(include=[np.number]).columns.tolist()
 
+                    # maybe generic df has a non-numeric column when transposed?
+                    if len(query_df)==1 and len(numeric_cols)>1:
+                        print(grant_name, query_name, 'len = 1')
+                        #transposed_df = query_df.T
+                        #transposed_numeric_cols = transposed_df.select_dtypes(include=[np.number]).columns.tolist()
+                        all_dfs = {
+                            k: v[query_name].T
+                            for k, v in output_dict['outputs'].items()
+                        }
+                        # Concat along columns, with period as first level
+                        numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
+                        # Combine non-numeric index and numeric MultiIndex columns
+                        result = numeric_dfs.reset_index()
+
                     # Build a dict of DataFrames for each period, indexed by non-numeric columns if present
-                    if non_numeric_cols:
+                    
+                    elif non_numeric_cols:
+                        #print(grant_name, query_name, 'has non numeric')
+                        #print('numeric cols', numeric_cols)
+                        #print('non-numeric', non_numeric_cols)
+                        #print(query_df)
                         all_dfs = {
                             k: v[query_name].set_index(non_numeric_cols)[numeric_cols]
                             for k, v in output_dict['outputs'].items()
@@ -503,7 +526,10 @@ ORDER BY participant_id, stint_start);
                         numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
                         # Combine non-numeric index and numeric MultiIndex columns
                         result = numeric_dfs
+                    
+
                     else:
+                        print(grant_name, query_name, 'is else')
                         all_dfs = {
                             k: v[query_name][numeric_cols]
                             for k, v in output_dict['outputs'].items()
@@ -519,8 +545,8 @@ ORDER BY participant_id, stint_start);
                         result[numeric_cols_result] = result[numeric_cols_result].round(1)
                     else:
                         result[numeric_cols_result] = result[numeric_cols_result].astype('Int64')
-
-                    formatted_outs[query_name] = result.fillna(0)
+                    result[numeric_cols_result] = result[numeric_cols_result].fillna(0)
+                    formatted_outs[query_name] = result
                 clean_dict[grant_name] = formatted_outs
             return clean_dict
 
@@ -1850,6 +1876,26 @@ class Queries(Audits):
         df = self.query_run(query)
         return(df)
 
+    
+    def enrollment_caseloads(self, if_legal=False):
+        if if_legal:
+            legal_table = self.table if 'a2j' in self.table else 'neon.legal_mycase'
+            query= f'''select attorney, count(distinct mycase_id) case_count 
+            from {legal_table}
+            join mycase.cases using(mycase_id)
+            group by attorney'''
+        else:
+            query= f'''
+            select service_type, assigned_staff, count(distinct participant_id) clients 
+            from {self.table}
+            join neon.service_staff using(participant_id, service_id, service_type)
+            where staff_start <= {self.q_t2} and (staff_end is null or staff_end >= {self.q_t1})
+            group by service_type, assigned_staff
+            '''
+        df = self.query_run(query)
+        return(df)
+
+    
     def enrollment_flow(self):
         '''
         Counts the flow of clients in and out of LCLC in the timeframe.
@@ -1982,7 +2028,7 @@ class Queries(Audits):
 	count(case when how_hear not regexp '.*CPIC.*' then incident_id else null end) as non_CPIC
     FROM neon.critical_incidents
     where (incident_date between {self.q_t1} and {self.q_t2})'''
-        df = self.query_run(query)
+        df = self.query_run(query).T
         return df
     
     def incident_type_tally(self):
@@ -2316,6 +2362,40 @@ class Queries(Audits):
         df = self.query_run(query)
         return(df)
     
+    @clipboard_decorator
+    def legal_tally(self, distinct_clients = False):
+        '''
+        Returns a total/started/ended count of cases (or clients with a case) in a timeframe.
+        started is defined by case_start in MyCase, ended is a case_outcome_date in NeonOne
+
+        Parameters:
+            distinct_clients (Bool): True counts # clients, False counts #cases. Defaults to False
+        Note:
+            Legal - Case/Client Tally
+        '''
+        legal_table = self.table if 'a2j' in self.table else 'neon.legal_mycase'
+        tally_item = 'participant_id' if distinct_clients else 'mycase_id'
+        row_label = 'Clients' if distinct_clients else 'Cases'
+        query = f'''with all_cases as (
+        select 'Total {row_label}', count(distinct {tally_item}) count from {legal_table} where 
+        (case_start is null or case_start <= {self.q_t2}) and ((case_outcome_date is null 
+        and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})),
+        started_cases as(
+        select 'Started {row_label}', count(distinct {tally_item}) from {legal_table}
+        where case_start between {self.q_t1} and {self.q_t2}),
+        closed_cases as(
+        select 'Closed {row_label}', count(distinct {tally_item}) from {legal_table} where case_outcome_date between {self.q_t1} and {self.q_t2}) 
+                    , fel_rank as (select *, case when ranking is null then 10 else ranking end better_rank from base b)
+
+        select * from all_cases
+        union all
+        select * from started_cases
+        union all
+        select * from closed_cases'''
+        df = self.query_run(query)
+        return(df)
+
+
     @clipboard_decorator
     def legal_rearrested(self, client_level = True):
         '''
@@ -2943,7 +3023,7 @@ from (select * from total_row
         from parts
         left join (select * from neon.case_sessions where contact_type like {session_type}) c using(participant_id);
         '''
-        df = self.query_run(query)
+        df = self.query_run(query).T
         return(df)
     @clipboard_decorator
     def session_avg_time_per_client(self, session_type = 'Case Management'):
