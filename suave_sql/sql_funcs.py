@@ -1891,6 +1891,7 @@ class Queries(Audits):
             join neon.service_staff using(participant_id, service_id, service_type)
             where staff_start <= {self.q_t2} and (staff_end is null or staff_end >= {self.q_t1})
             group by service_type, assigned_staff
+            order by service_type, assigned_staff
             '''
         df = self.query_run(query)
         return(df)
@@ -2049,7 +2050,7 @@ class Queries(Audits):
         return df
 
 
-    def incident_response(self):
+    def incident_response(self, cpic_distinguish=True, as_pct = False):
         '''
         counts incidents responded to in timeframe
 
@@ -2058,14 +2059,24 @@ class Queries(Audits):
 
                 e.incident_response()
         
+        Parameters:
+            cpic_distinguish (Bool): separate CPIC and non-CPIC notifications, defaults to True
+            as_pct (Bool): format responded_in_60 as percent, defaults to false
+
         Note:
             Mediations/Critical Incidents - Count by Response Type
         '''
-
-        query = f'''select count(incident_id) as total_incidents, 
-        count(case when did_staff_respond = 'yes' then incident_id else null end) as responded_incidents 
-        from neon.critical_incidents
-        where (incident_date between {self.q_t1} and {self.q_t2})'''
+        query = f'''
+select {'if_cpic,' if cpic_distinguish else ''} 
+  count(distinct incident_id) num_incidents, 
+  count(distinct case when did_staff_respond = 'Yes' then incident_id else null end) num_responded,
+  count(distinct case when responded_in_60 <= 60 then incident_id else null end){'/count(distinct incident_id)' if as_pct else ''} responded_in_hour
+  from
+(select incident_id, incident_date, case when how_hear like "%CPIC%" then 'CPIC' else 'Non-CPIC' end if_cpic, did_staff_respond, time_notification, staff_response_time,
+  TIME_TO_SEC(timediff(staff_response_time, time_notification))/60 responded_in_60  from neon.critical_incidents
+where notification_date between {self.q_t1} and {self.q_t2}) i
+{'group by if_cpic' if cpic_distinguish else ''}
+'''
         df = self.query_run(query)
         return df
     
@@ -2760,6 +2771,37 @@ from (select * from total_row
         left join recent_links using(participant_id)'''
         df = self.query_run(query)
         return(df)
+   
+   
+    @clipboard_decorator
+    def linkages_high_pcl(self, min_score=31):
+        '''
+        Get percent of clients with a high PCL score who had a subsequent mental health linkage
+        
+        Parameters:
+            min_score: High PCL score threshold. Defaults to 31
+
+        Note:
+            Linkages - Percent of High PTSD Screener Clients with a Mental Health Connection
+        '''  
+        query = f'''
+with part as (select participant_id, min(assessment_date) assessment_date from assess.cm_long
+where participant_id in(select distinct participant_id from {self.table}) and assessment_type = 'PCL' and score >= {min_score}
+group by participant_id),
+
+w_links as
+(select distinct participant_id from neon.linkages
+join part using(participant_id)
+where (linked_date > assessment_date or start_date > assessment_date) and
+(linkage_type like '%mental%' or internal_program like "therapy") and client_initiated = 'no')
+
+select 
+  (select count(participant_id) from part) num_eligible,
+  (select count(participant_id) from w_links) num_linked,
+  (select count(participant_id) from w_links)/(select count(participant_id) from part) pct_linked
+'''
+        df = self.query_run(query)
+        return(df)
     
 
     @clipboard_decorator
@@ -2917,6 +2959,29 @@ from (select * from total_row
 
 
     @clipboard_decorator
+    def outreach_canvassing(self):
+        '''
+        Counts the total canvassing sessions/hours in the timeframe, with rows for distinct sessions and per-staff contributions
+
+        Note:
+            Outreach - Canvassing Totals
+        '''
+    
+        query = f'''
+        with base as (select *, LENGTH(staff_present) - LENGTH(REPLACE(staff_present, ',', '')) + 1 num_staff from neon.outreach_canvassing
+where activity_name like '%canvassing%' and attendance_date between {self.q_t1} and {self.q_t2})
+
+select "Distinct Sessions" count_type, count(distinct attendance_id) total_sessions,sum(total_hours) total_hours
+from base
+union all
+select "Across Staff Members", sum(num_staff), sum(total_hours * num_staff)
+from base
+        '''
+        df = self.query_run(query)
+        return(df)
+
+
+    @clipboard_decorator
     def outreach_elig_tally(self, outreach_only = True, new_clients = False):
         '''
         Counts the number of clients with outreach eligibility forms, and the number who answered yes to each question
@@ -2978,7 +3043,7 @@ from (select * from total_row
         '''
 
         ''''''
-        timeframe_statement = f"""where mediation_start between{self.q_t1} and {self.q_t2}""" 
+        timeframe_statement = f"""where mediation_start between {self.q_t1} and {self.q_t2}"""  if timeframe else ''
         query = f'''select mediation_outcome, count(mediation_id) count
         from neon.mediations 
         {timeframe_statement} 
@@ -3108,6 +3173,47 @@ left join sess using(participant_id)
         '''
         df = self.query_run(query)
         return(df)
+    
+    def session_time_per_topic(self, session_type = 'Case Management'):
+        '''
+        For each focus of contact, returns the number of clients who discussed the topic, and the sum of all time spent in associated sessions within the timeframe.
+        
+        Parameters:
+            session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
+        
+        Note:
+            Case Sessions - Client/Time Totals per Focus of Contact
+        '''
+        query = f'''
+with sess as(select participant_id, focus_contact, contact_type, total_minutes, description from neon.case_sessions
+            join (select distinct participant_id from participants.jac where service_type = '{session_type}') i using(participant_id)
+            where (session_date between {self.q_t1} and {self.q_t2}) and successful_contact = 'Yes' and focus_contact is not null),
+            separated as
+            (select participant_id, SUBSTRING_INDEX(SUBSTRING_INDEX(focus_contact, ', ', n), ', ', -1) AS separated_focus, 
+            total_minutes
+            from sess
+            JOIN (
+                SELECT 1 AS n UNION ALL
+                SELECT 2 UNION ALL
+                SELECT 3 UNION ALL
+                SELECT 4 UNION ALL
+                SELECT 5 UNION ALL
+                SELECT 6 UNION ALL
+                SELECT 7 UNION ALL
+                SELECT 8 UNION ALL
+                SELECT 9
+            ) AS numbers
+            ON CHAR_LENGTH(focus_contact) - CHAR_LENGTH(REPLACE(focus_contact, ',', '')) >= n - 1)
+
+        select separated_focus case_session_topic, 
+  count(distinct participant_id) num_clients, 
+  round(sum((total_minutes)/60),1) hours_spent from separated
+group by separated_focus
+order by hours_spent desc
+'''
+        df = self.query_run(query)
+        return(df)
+
 
 class ReferralAsks(Queries):
     def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
@@ -3816,7 +3922,42 @@ select * from ages'''
         df = self.query_run(query)
         return df
 
-    
+    def jac_linkages(self):
+        '''
+        Counts clients provided/referred to services within timeframe, listing all referral partners
+        
+        Note:
+            Grants: JAC - HD Service Connections Provided/Referred
+        '''
+        
+        query = f'''
+with linkage_table as (select participant_id, client_initiated, 
+  case when linkage_type is null then internal_program
+  when linkage_type like 'other%' and comments like '%service hour%' then 'Community Service'
+  else linkage_type end linkage_type,
+  internal_external, linkage_org, linked_date, start_date, 
+  case when client_initiated = 'no' and linked_date between {self.q_t1} and {self.q_t2} and internal_external = 'external' then True else False end referred,
+  case when start_date is not null and internal_external = 'internal' then True else False end provided
+  from neon.linkages
+where participant_id in (select distinct participant_id from {self.table}) and
+(linked_date between {self.q_t1} and {self.q_t2} or start_date between {self.q_t1} and {self.q_t2} or (start_date < {self.q_t1} and (end_date is null or end_date > {self.q_t1})))
+),
+
+partners as (select linkage_type, group_concat(distinct linkage_org separator ', ') referral_partners from linkage_table where referred = 1
+group by linkage_type)
+
+
+select * from (select linkage_type, 
+  count(distinct case when provided = 1 then participant_id else null end) clients_provided,
+  count(distinct case when referred = 1 then participant_id else null end) clients_referred
+  from linkage_table
+  where provided = 1 or referred = 1
+group by linkage_type) l
+left join partners using(linkage_type)
+'''
+        df = self.query_run(query)
+        return df
+
     def r3_ages(self):
         '''
         Returns client ages for groups 6-11, 12-14, 15-17, 18-25, 26+
@@ -3952,3 +4093,51 @@ select * from ages'''
         # revert to string
         df['missing_units'] = df['missing_units'].transform(lambda x: ','.join(map(str, x)))
         return df
+    
+    def victim_services_sessions(self, timeframe=True, services_per_client=False):
+        '''
+        Overview on the topics of victim services sessions
+
+        Parameters:
+            timeframe (Bool): only include sessions in timeframe. Defaults to True
+            services_per_client (Bool): count the total number of topics for a given client (instead of the number of clients receiving each service). Defaults to False
+        
+        
+        Note:
+            Case Sessions - Victim Services
+        '''
+        timeframe_str = f'and (session_date between {self.q_t1} and {self.q_t2})' if timeframe else ''
+        base = f'''
+with sess as(select participant_id, focus_contact, contact_type, new_client, description from neon.victim_services
+            join (select distinct participant_id, new_client from {self.table} where service_type = 'victim services') i using(participant_id)
+            where successful_contact = 'Yes' and focus_contact is not null {timeframe_str}),
+            separated as
+            (select participant_id, new_client, contact_type, SUBSTRING_INDEX(SUBSTRING_INDEX(focus_contact, ', ', n), ', ', -1) AS separated_focus
+            from sess
+            JOIN (
+                SELECT 1 AS n UNION ALL
+                SELECT 2 UNION ALL
+                SELECT 3 UNION ALL
+                SELECT 4 UNION ALL
+                SELECT 5 UNION ALL
+                SELECT 6 UNION ALL
+                SELECT 7 UNION ALL
+                SELECT 8 UNION ALL
+                SELECT 9
+            ) AS numbers
+            ON CHAR_LENGTH(focus_contact) - CHAR_LENGTH(REPLACE(focus_contact, ',', '')) >= n - 1)
+            '''
+        if services_per_client:
+            addendum = '''select participant_id, new_client, count(distinct separated_focus) total_topics, 
+  group_concat(distinct separated_focus separator ", ") topic_list 
+  from separated
+  group by participant_id'''
+        else:
+            addendum = '''select separated_focus session_focus, count(distinct case when new_client = 'new' then participant_id else null end) as new,
+            count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing from 
+            separated
+            group by separated_focus'''
+        query = base + ' ' + addendum
+        
+        df = self.query_run(query)
+        return(df)
