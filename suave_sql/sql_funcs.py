@@ -315,31 +315,47 @@ FROM date_groups
 GROUP BY participant_id);
 
 DROP TABLE IF EXISTS `stints`.`stints_plus_stint_count`;
-create table stints.stints_plus_stint_count as(
+  create table stints.stints_plus_stint_count as(
 WITH DateGroups AS (
-    SELECT 
-        participant_id,
-        program_start,
-        program_end,
-        CASE 
-            WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) >= program_start THEN 0 
-            ELSE 1 
-        END AS is_new_group
-    FROM neon.programs
-),
-Grouped AS (
-    SELECT 
-        participant_id,
-        program_start,
-        program_end,
-        SUM(is_new_group) OVER (PARTITION BY participant_id ORDER BY program_start) AS group_num
-    FROM DateGroups
-)
-SELECT participant_id, group_num stint_num, MIN(program_start) AS stint_start, MAX(program_end) AS stint_end
-FROM Grouped
-GROUP BY participant_id, stint_num
-ORDER BY participant_id, stint_start);
+      SELECT 
+          participant_id,
+          program_start,
+          program_end,
+          CASE 
+              WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) >= program_start THEN 0
+              WHEN LAG(program_end) OVER (PARTITION BY participant_id ORDER BY program_start) IS NULL AND 
+                        LAG(program_start) OVER (PARTITION BY participant_id ORDER BY program_start) IS NOT NULL THEN 0
+              ELSE 1 
+          END AS is_new_group
+      FROM neon.programs
+  ),
+  Grouped AS (
+      SELECT 
+          participant_id,
+          program_start,
+          program_end,
+          SUM(is_new_group) OVER (PARTITION BY participant_id ORDER BY program_start) AS group_num
+      FROM DateGroups
+  ),
 
+min_start as 
+(select participant_id, group_num stint_num, min(program_start) stint_start
+  from grouped
+  group by participant_id, stint_num),
+
+max_end as(select participant_id, group_num stint_num, program_end stint_end
+  from (select participant_id, program_end, group_num,
+  row_number() over(
+    partition by participant_id, group_num
+  order by 
+  case when program_end is null then 0 else 1 end asc,
+  program_end desc
+  ) rn
+   from grouped) g 
+where rn = 1)
+
+select * from min_start
+join max_end using(participant_id, stint_num));
         '''
         if self.mycase == True:
             stints_statements = stints_statements + ' ' + f'''drop table if exists neon.legal_mycase;
@@ -2006,10 +2022,44 @@ class Queries(Audits):
             query = f'''select {types_str}, {months_str}
             from neon.bi_psg
             group by {types_str}'''
+            df = self.query_run(query)
         else:
-            query = f'''select count(distinct participant_id) count, {months_str}
-            from neon.bi_psg'''
-        df = self.query_run(query)
+            base = f'''with base as (select * from stints.stints_plus_stint_count 
+            where participant_id in (select distinct participant_id from {self.table}))
+            
+            '''
+            monthly_status_list = []
+            month_order = []
+            for month_start, month_end in zip(pd.date_range(start=self.t1, end=self.t2, freq = 'MS'), pd.date_range(start=self.t1, end=self.t2, freq = 'ME')):
+                month_start_str = month_start.strftime('%Y-%m-%d')
+                month_end_str = (month_end.strftime('%Y-%m-%d'))
+                month_order.append((month_start.strftime('%B %Y')))
+                monthly_status_query = f'''
+
+                select participant_id, '{(month_start.strftime('%B %Y'))}' as month, 
+                case 
+                    when stint_start between '{month_start_str}' and '{month_end_str}' and stint_end <= '{month_end_str}' then 'started_ended'
+                    when stint_start between '{month_start_str}' and '{month_end_str}' then 'started'
+                    when stint_end between '{month_start_str}' and '{month_end_str}' then 'ended'
+                    else 'continuing' end 'status'
+                from base
+                where stint_start < '{month_end_str}' and (stint_end is null or stint_end >= '{month_start_str}')
+
+                '''
+                monthly_status_list.append(monthly_status_query)
+            status_query = 'UNION ALL'.join(str(st) for st in monthly_status_list)
+            query = base + ' ' +  status_query
+            
+            df = self.query_run(query)
+            #print(df)
+            df = df.groupby(['month','status']).nunique()
+            df = df.reset_index().pivot(index='status',columns='month',values='participant_id')
+            df = df[month_order]
+            df.loc['TOTAL'] = df.sum()
+            df.loc['TOTAL AT START'] = df.loc['continuing'] + df.loc['ended']
+            df = df.reset_index()
+
+        
         return df
     
     def incident_tally(self):
