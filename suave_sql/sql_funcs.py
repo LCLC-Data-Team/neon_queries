@@ -1955,10 +1955,12 @@ class Queries(Audits):
             (select prog_status, count(distinct participant_id) count from client_statuses
             group by prog_status)
             union all
-            select concat('Close Reason: ', close_reason), count(distinct participant_id) reason_count from client_statuses
-            join neon.programs using(participant_id)
-            where prog_status like '%ended' and close_reason is not null
-            group by close_reason
+            select concat('Close Reason: ', close_reason) close_reason, count(distinct participant_id) reason_count from
+                (select participant_id, group_concat(distinct close_reason separator ", ") close_reason from client_statuses
+                join neon.programs using(participant_id)
+                where prog_status like '%ended' and close_reason is not null and program_end between {self.q_t1} and {self.q_t2}
+                group by participant_id) r 
+                group by close_reason
             order by case when 
             status = 'TOTAL' then 1
             when status = 'continuing' then 2
