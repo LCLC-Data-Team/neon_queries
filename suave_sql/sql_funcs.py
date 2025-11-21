@@ -1880,15 +1880,36 @@ class Queries(Audits):
                 e.enrollment_bundles()
         
         Parameters:
-            enrollment_level: 'program' or 'grant'
+            enrollment_level: 'program', 'grant' or 'program_generic' to group by only/multiple programs
         Note:
             Enrollment - Client Program Combinations
         '''
-        query = f'''select prog, count(distinct participant_id) from
-        (select participant_id, group_concat(distinct {enrollment_level}_type) prog from stints.neon
-        where (program_end is null or program_end > {self.q_t1}) and (service_end is null or service_end > {self.q_t1}) and (grant_end is null or grant_end > {self.q_t1})
-        group by participant_id) s
-        group by prog'''
+        if enrollment_level == 'program_generic':
+            query = f'''with merged_progs as (select participant_id, group_concat(distinct program_type) merged_programs from stints.neon
+                group by participant_id)
+
+
+                select program_type, 'Only Program' program_enrollment, count(distinct participant_id) count
+                from stints.neon
+                join merged_progs using(participant_id)
+                where merged_programs not like "%,%"
+                group by program_type
+
+                union all 
+                select program_type, 'Multiple Programs' program_enrollment, count(distinct participant_id)
+                from stints.neon
+                join merged_progs using(participant_id)
+                where merged_programs like "%,%"
+                group by program_type
+                
+                '''
+        else:
+            query = f'''select prog, count(distinct participant_id) from
+            (select participant_id, group_concat(distinct {enrollment_level}_type) prog from stints.neon
+            where (program_end is null or program_end > {self.q_t1}) and (service_end is null or service_end > {self.q_t1}) and (grant_end is null or grant_end > {self.q_t1})
+            group by participant_id) s
+            group by prog'''
+        
         df = self.query_run(query)
         return(df)
 
