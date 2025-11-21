@@ -1885,7 +1885,7 @@ class Queries(Audits):
             Enrollment - Client Program Combinations
         '''
         if enrollment_level == 'program_generic':
-            query = f'''with merged_progs as (select participant_id, group_concat(distinct program_type) merged_programs from stints.neon
+            query = f'''with merged_progs as (select participant_id, group_concat(distinct program_type) merged_programs from {self.table}
                 group by participant_id)
 
 
