@@ -1890,14 +1890,14 @@ class Queries(Audits):
 
 
                 select program_type, 'Only Program' program_enrollment, count(distinct participant_id) count
-                from stints.neon
+                from {self.table}
                 join merged_progs using(participant_id)
                 where merged_programs not like "%,%"
                 group by program_type
 
                 union all 
                 select program_type, 'Multiple Programs' program_enrollment, count(distinct participant_id)
-                from stints.neon
+                from {self.table}
                 join merged_progs using(participant_id)
                 where merged_programs like "%,%"
                 group by program_type
