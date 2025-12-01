@@ -62,22 +62,27 @@ class Tables:
         'grant_end':'"2026-06-30"'},
 'idhs': {'grant_name':'IDHS VP',
         'grant_start':'"2025-07-01"',
-        'grant_end':'"2026-06-30"'},
+        'grant_end':'"2026-06-30"',
+        'neighborhoods':['North Lawndale']},
 'cvi':{'grant_name':'ICJIA - CVI',
         'grant_start':'"2025-10-01"',
-        'grant_end':'"2026-09-30"'},
+        'grant_end':'"2026-09-30"',
+        'neighborhoods':['North Lawndale','East Garfield Park','West Garfield Park','Austin','North Austin']},
 'r3':{'grant_name':'ICJIA - R3',
         'grant_start':'"2024-11-01"',
-        'grant_end':'"2025-10-30"'},
+        'grant_end':'"2025-10-30"',
+        'neighborhoods':['North Lawndale','East Garfield Park','West Garfield Park','Austin','North Austin']},
 'scan':{'grant_name':'DFSS - SCAN',
         'grant_start':'"2025-01-01"',
         'grant_end':'"2025-12-31"'},
 'ryds':{'grant_name':'IDHS - RYDS',
         'grant_start':'"2025-10-01"',
-        'grant_end':'"2026-09-30"'},
+        'grant_end':'"2026-09-30"',
+        'neighborhoods':['North Lawndale']},
 'jac':{'grant_name': 'JAC - CVI',
         'grant_start':'"2025-08-01"',
-        'grant_end':'"2027-07-31"'}}
+        'grant_end':'"2027-07-31"',
+        'neighborhoods':['North Lawndale','East Garfield Park','West Garfield Park','Austin','North Austin']}}
 
 
     def query_run(self, query):
@@ -1018,7 +1023,8 @@ class Audits(Tables):
             Outreach - Missing Assessment Information
         '''
         query = f'''
-        with parts as (select distinct participant_id, service_start from stints.active where service_type = 'outreach'),
+        with parts as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name,
+        service_start, outreach_workers outreach_worker from {self.table} where service_type = 'outreach'),
 		eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
         group by participant_id),
     	assessment as (
@@ -1038,13 +1044,13 @@ class Audits(Tables):
         left join assessment using(participant_id)
         left join intervention using(participant_id)),
     str_table as(
-		select participant_id,
+		select participant_id, name, outreach_worker,
     case when elig_count is null then "Eligibility Screening" else null end elig_count,
     case when assessment_count is null then "Safety Assessment" else null end assess_count,
 		case when intervention_count is null then "Initial Safety Intervention"
      	when time_of_intervention like 'Intake' and datediff(CURDATE(), latest_intervention) > 100 then "Updated Safety Intervention" else null end intervention_count
     from big_table)
-    select participant_id, 
+    select participant_id, name, outreach_worker,
     ((elig_count IS NOT NULL) +
     (assess_count IS NOT NULL) +
     (intervention_count IS NOT NULL) ) num_missing_assessments,
@@ -3456,9 +3462,30 @@ class Grants(Queries):
         '''
         
         super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
+        self.grant_type = grant_type
         if not cloud_run:
             if isinstance(grant_type,str):
                 self.table_update(grant_type, update_default_table = True)
+
+    def audit_neighborhoods(self):
+        '''
+        Returns all clients residing outside the grant's service area
+
+        Note:
+            Grants: Neighborhood Audit
+        '''
+        neighborhood_list = self.grant_dict[self.grant_type]['neighborhoods']
+        neighborhood_regexp = "|".join(neighborhood_list)
+
+        query = f'''
+        select participant_id, concat(first_name, " ",left(last_name,1), ".") name, address1, zip, community
+        from neon.address_latest
+        right join (select distinct participant_id, first_name, last_name from {self.table}) s using(participant_id)
+        where community is null or community not regexp "{neighborhood_regexp}"
+        '''
+        df = self.query_run(query)
+        return df
+
 
     def cvi_demographics(self):
         '''
