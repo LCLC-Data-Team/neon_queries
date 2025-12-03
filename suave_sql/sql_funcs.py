@@ -227,7 +227,7 @@ select participant_id, max(linked_date) as latest_linkage, count(distinct linkag
 from
 (select * from neon.linkages
 join parts using(participant_id)
-where (linked_date >=cm_start or start_date >= cm_start) and client_initiated = 'no') l
+where (linked_date >=cm_start or start_date >= cm_start) and client_initiated = 'LCLC Staff') l
 group by participant_id),
 SESSIONS as(
 select participant_id, max(case when successful_contact = "Yes" then session_date else null end) as latest_session, 
@@ -426,15 +426,18 @@ join max_end using(participant_id, stint_num));
             func_dict: dictionary of functions to include, defaults to self.report_funcs. To use a different  
         '''       
         result_dict = {}
-        for result_key, (func_name, func_args) in func_dict.items():
-            func = getattr(self, func_name, None)
-            if func and callable(func):
-                try:
-                    # Call the function with func_args and additional args/kwargs
-                    result = func(*func_args, *args, **kwargs)
-                    result_dict[result_key] = result
-                except Exception as e:
-                    result_dict[result_key] = f"Error: {str(e)}"
+        try:
+            for result_key, (func_name, func_args) in func_dict.items():
+                func = getattr(self, func_name, None)
+                if func and callable(func):
+                    try:
+                        # Call the function with func_args and additional args/kwargs
+                        result = func(*func_args, *args, **kwargs)
+                        result_dict[result_key] = result
+                    except Exception as e:
+                        result_dict[result_key] = f"Error: {str(e)}"
+        except Exception as e:
+            result_dict[result_key] = f"Error: {str(e)}"
 
         return result_dict
 
@@ -1008,7 +1011,7 @@ class Audits(Tables):
         left join(
         select participant_id, count(distinct linkage_id) total_linkages, max(linked_date) as latest_linkage from neon.linkages
         join (select * from stints.active where service_type = 'case management') s using(participant_id)
-        where service_start <= linked_date and client_initiated = 'no'
+        where service_start <= linked_date and client_initiated = 'LCLC Staff'
         group by participant_id) p using(participant_id)
         '''
         df = self.query_run(query)
@@ -2729,7 +2732,7 @@ long_link as (select participant_id, linkage_id,
   from neon.linkages
 join parts using(participant_id)
 where (program_start <= start_date or program_start <= linked_date) and linkage_type is not null
-{f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''} {f'and client_initiated = "no"' if lclc_initiated else ''}),
+{f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''} {f'and client_initiated = "LCLC Staff"' if lclc_initiated else ''}),
 
 extra_long_link as (
   select * from long_link
@@ -2824,7 +2827,7 @@ from (select * from total_row
 
 
         service_statement = "where service_type = 'case management'" if just_cm else ''
-        initiated_statement = "and client_initiated = 'no'" if lclc_initiated else ''
+        initiated_statement = "and client_initiated = 'LCLC Staff'" if lclc_initiated else ''
         
         query = f'''with parts as  (select distinct(participant_id), program_start from {self.table}
         {service_statement}),
@@ -2872,7 +2875,7 @@ w_links as
 (select distinct participant_id from neon.linkages
 join part using(participant_id)
 where (linked_date > assessment_date or start_date > assessment_date) and
-(linkage_type like '%mental%' or internal_program like "therapy") and client_initiated = 'no')
+(linkage_type like '%mental%' or internal_program like "therapy") and client_initiated = 'LCLC Staff')
 
 select 
   (select count(participant_id) from part) num_eligible,
@@ -2920,7 +2923,7 @@ select
         from part
         join neon.linkages using(participant_id)
         join stints.stint_count using(participant_id)
-        where (program_start <= linked_date or stint_count = 1) and client_initiated = 'No'
+        where (program_start <= linked_date or stint_count = 1) and client_initiated = 'LCLC Staff'
         {timeframe_statement} {first_n_months_statement}
         group by participant_id),
         link_base as (
@@ -2974,7 +2977,7 @@ select
         '''
 
         service_statement = "where service_type = 'case management'" if just_cm else ''
-        initiated_statement = "and client_initiated = 'no'" if lclc_initiated else ''
+        initiated_statement = "and client_initiated = 'LCLC Staff'" if lclc_initiated else ''
         
         parameters_list = [f'linked_date between {self.q_t1} and {self.q_t2}' if timeframe else None, 
                     'start_date is not null' if link_started else None, 'end_date is null' if link_ongoing else None]
@@ -3021,7 +3024,7 @@ select
         parameters_list = [f'linked_date between {self.q_t1} and {self.q_t2}' if timeframe else None, 
                     'start_date is not null' if link_started else None, 
                     'end_date is null' if link_ongoing else None,
-                    'client_initiated = "no"' if lclc_initiated else None]
+                    'client_initiated = "LCLC Staff"' if lclc_initiated else None]
         better_parameters = 'where ' + ' and '.join(filter(None, parameters_list)) if any(parameters_list) else ''
 
         query = f'''with parts as  (select distinct(participant_id) from {self.table}
@@ -3105,6 +3108,26 @@ from base
         join (select participant_id, max(assessment_date) assessment_date from assess.outreach_eligibility
         group by participant_id) o using(participant_id, assessment_date)
         join(select distinct participant_id from {self.table} {where_statement}) s using(participant_id)
+        '''
+        df = self.query_run(query)
+        return df
+    
+    @clipboard_decorator
+    def mediation_info(self,timeframe=True):
+        '''
+        Returns dataframe of mediation information
+
+        Parameters:
+            timeframe (Bool): Whether to only include mediations in the timeframe. Defaults to True
+        
+        Note:
+            Mediations/Critical Incidents - All Information
+        '''
+        timeframe_str = f'where mediation_start between {self.q_t1} and {self.q_t2}' if timeframe else ''
+        query = f'''
+        select mediation_id, mediation_start, conflict_reason, conflict_how_hear, mediation_outcome, num_hours_spent, comments
+        from neon.mediations
+        {timeframe_str}
         '''
         df = self.query_run(query)
         return df
@@ -3565,7 +3588,7 @@ select * from ages'''
         '''
 
         query = f'''
-        select count(distinct case when linked_date between {self.q_t1} and {self.q_t2} and client_initiated = 'No' then participant_id else null end) linkages_made,
+        select count(distinct case when linked_date between {self.q_t1} and {self.q_t2} and client_initiated = 'LCLC Staff' then participant_id else null end) linkages_made,
         count(distinct case when start_date between {self.q_t1} and {self.q_t2} then participant_id else null end) linkages_started
         from neon.linkages
         where (internal_program = 'therapy' or linkage_type = 'mental health') and participant_id in (select participant_id from grant_projections.cvi_full)
@@ -3770,7 +3793,7 @@ select * from ages'''
         with link as(
         select participant_id, new_client, case when linkage_type is null then internal_program else linkage_type end as linkage_type, internal_external, linkage_org from neon.linkages
         join (select distinct participant_id, new_client from {self.table} {cm_only_statement}) i using(participant_id)
-        where client_initiated = 'no' and linked_date between {self.q_t1} and {self.q_t2})
+        where client_initiated = 'LCLC Staff' and linked_date between {self.q_t1} and {self.q_t2})
 
         select {int_ext}, count(case when new_client = 'new' then participant_id else null end) as new_links,
         count(case when new_client = 'continuing' then participant_id else null end) as cont_links
@@ -4036,7 +4059,7 @@ with linkage_table as (select participant_id, client_initiated,
   when linkage_type like 'other%' and comments like '%service hour%' then 'Community Service'
   else linkage_type end linkage_type,
   internal_external, linkage_org, linked_date, start_date, 
-  case when client_initiated = 'no' and linked_date between {self.q_t1} and {self.q_t2} and internal_external = 'external' then True else False end referred,
+  case when client_initiated = 'LCLC Staff' and linked_date between {self.q_t1} and {self.q_t2} and internal_external = 'external' then True else False end referred,
   case when start_date is not null and internal_external = 'internal' then True else False end provided
   from neon.linkages
 where participant_id in (select distinct participant_id from {self.table}) and
