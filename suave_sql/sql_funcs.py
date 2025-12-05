@@ -427,15 +427,28 @@ join max_end using(participant_id, stint_num));
         '''       
         result_dict = {}
         try:
-            for result_key, (func_name, func_args) in func_dict.items():
-                func = getattr(self, func_name, None)
-                if func and callable(func):
-                    try:
-                        # Call the function with func_args and additional args/kwargs
-                        result = func(*func_args, *args, **kwargs)
-                        result_dict[result_key] = result
-                    except Exception as e:
-                        result_dict[result_key] = f"Error: {str(e)}"
+            for result_key, result_value in func_dict.items():
+                try:
+                    func_name, func_args, func_kwargs = result_value
+                    func = getattr(self, func_name, None)
+                    if func and callable(func):
+                        try:
+                            result = func(*func_args, *args, **{**kwargs, **func_kwargs})
+                            result_dict[result_key] = result
+                        except Exception as e:
+                            result_dict[result_key] = f"Error: function could not be parsed"
+                
+                except ValueError:
+                    (func_name, func_args) = result_value
+                    func = getattr(self, func_name, None)
+                    if func and callable(func):
+                        try:
+                            # Call the function with func_args and additional args/kwargs
+                            result = func(*func_args, *args, **kwargs)
+                            result_dict[result_key] = result
+                        except Exception as e:
+                            result_dict[result_key] = f"Error: function could not be parsed"
+                
         except Exception as e:
             result_dict[result_key] = f"Error: {str(e)}"
 
@@ -4254,7 +4267,7 @@ with sess as(select participant_id, focus_contact, contact_type, new_client, des
             addendum = '''select participant_id, new_client, count(distinct separated_focus) total_topics, 
   group_concat(distinct separated_focus separator ", ") topic_list 
   from separated
-  group by participant_id'''
+  group by participant_id, new_client'''
         else:
             addendum = '''select separated_focus session_focus, count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing from 
