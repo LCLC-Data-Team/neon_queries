@@ -34,7 +34,8 @@ category_dict = {
     'legal': 'Legal',
     'linkages':'Linkages',
     'outreach': 'Outreach Assessments',
-    'session':'Case Sessions'
+    'session':'Case Sessions',
+    'idhs':'Grant Reports'
 }
 
 def extract_category(string):
