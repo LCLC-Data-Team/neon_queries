@@ -339,14 +339,25 @@ class Report:
             output_dict[query_name] = out_df
         return output_dict
 
-
 class ReportFromXlsxTemplate:
-    def __init__(self, excel_file_path, t1, t2,engine, include_grants = []):   
-        self.alias_dict = {'r3':['ICJIA - R3', 'ICJIA R3', 'R3', 'r3'],
-              'cvi':['ICJIA - CVI', 'ICJIA CVI', 'CVI', 'cvi'],
-              'idhs':['IDHS - VP', 'IDHS VP', 'VP', 'vp'],
-              'ryds':['IDHS - RYDS', 'IDHS RYDS', 'RYDS', 'ryds'],
-              'jac':['JAC - CVI', 'JAC CVI', 'JAC', 'jac'],}     
+    def __init__(self, excel_file_path, t1, t2,engine, include_grants = []):  
+        '''
+        Process a Report Template file and run reports for each grant represented in the file. 
+        The formatted df is preserved as .base_df, the dictionary of outputs/queries is preserved as .query_dict
+        
+        Parameters:
+            excel_file_path: path to your completed Report Template
+            t1: start date of report period, formatted as 'YYYY-MM-DD'
+            t2: end date of report period, formatted as 'YYYY-MM-DD'
+            engine: mysql engine
+            include_grants (optional): subset of grants within the excel file to include. Can include 'all' for non-grant requests
+        ''' 
+        self.alias_dict = {'r3':['ICJIA R3','ICJIA - R3', 'R3', 'r3'],
+              'cvi':['ICJIA CVI', 'ICJIA - CVI', 'CVI', 'cvi'],
+              'idhs':['IDHS VP','IDHS - VP', 'VP', 'vp'],
+              'ryds':['IDHS RYDS', 'IDHS - RYDS', 'RYDS', 'ryds'],
+              'jac':['JAC CVI', 'JAC - CVI', 'JAC', 'jac'],
+              'all':['All',None, '', 'all']}     
         narrative_df = pd.read_excel(excel_file_path, sheet_name="Narrative Key")
         self.format_narrative = True if len(narrative_df) > 0 else False
         narrative_df = narrative_df.dropna()
@@ -358,11 +369,17 @@ class ReportFromXlsxTemplate:
         if len(include_grants) > 0:
             self.filter_query_df(include_grants)
         # filter out grants to be included 
-
+        
         query_dict = self.generate_output_dictionary(t1, t2, engine)
         self.output_dict = self.format_output_dictionary(query_dict)
 
     def filter_query_df(self, grant_list):
+        '''
+        Subset the df to only include grants found in grant_list
+
+        Parameters:
+            grant_list: list of grants to include
+        '''
         found_keys = []
         for key, value in self.alias_dict.items():
             for grant in grant_list:
@@ -370,10 +387,19 @@ class ReportFromXlsxTemplate:
                     found_keys.append(key)
         self.base_df = self.base_df[self.base_df['row_id'].str.startswith(tuple(found_keys))]
 
+
     def format_query_df(self, df):
+        '''
+        Reformat base_df to parse numbers in _row/_number cols, extract formatted methods from method col, and generate row_id for each row
+
+        Parameters:
+            df: dataframe of the excel file
+        '''
+
         def parse_method(meth):
             """Parse a string representing a sql_query call into components suitable for the Report object."""
             if meth.startswith('.'):
+                #print(meth)
                 meth = meth[1:]  # remove leading dot
                 query_name, vars_str = meth.split("(", 1)
                 vars_str = vars_str.rsplit(")", 1)[0].strip()
@@ -438,15 +464,14 @@ class ReportFromXlsxTemplate:
                 # ignore anything else
 
             return result if result else np.nan
-        
-        
+        df['grant_name'] = df['grant_name'].fillna('all')
         df["report_row"] = df["report_row"].apply(parse_value)
         df['narrative_number'] = df['narrative_number'].apply(parse_value)
         df['where_used'] = df['where_used'].str.split(', ')
         df['row_id'] = df.groupby('grant_name').cumcount() + 1
         df['row_id'] = df['grant_name'].map({v: k for k, lst in self.alias_dict.items() for v in lst}) + "_" + df['row_id'].astype(str)
         df['formatted_method'] = df['method'].apply(parse_method)
-
+        print(df)
         return df
     
     
@@ -455,7 +480,7 @@ class ReportFromXlsxTemplate:
             query_dict = {}
             for _, row in df.iterrows():
                 sub_dict = {}
-                for col in ['where_used','metric','comments','report_row','narrative_number','formatted_method']:
+                for col in ['where_used','method','metric','comments','report_row','narrative_number','formatted_method']:
                     val = row[col]
                     if isinstance(val, (float, int)) and pd.isna(val):
                         continue
@@ -473,13 +498,16 @@ class ReportFromXlsxTemplate:
             output_dict = {}
             for grant_name, grant_funcs in outer_dict.items():
                 standard_inputs = {
-                'engine': engine,'print_SQL': True,'clipboard': False,'mycase': True,
-                'default_table': 'stints.neon',
-                'grant_type':grant_name}
-
+                    'engine': engine,'print_SQL': False,'clipboard': False,'mycase': True,
+                    'default_table': 'stints.neon'}
                 funcz = grant_funcs
 
-                r = Report(funcz, standard_inputs, t1, t2, interval = None, report_type = 'Grants')
+                if grant_name == 'all':
+                    r = Report(funcz, standard_inputs, t1, t2, interval = None, report_type = 'Queries')
+                else:
+                    standard_inputs['grant_type'] = grant_name
+                    r = Report(funcz, standard_inputs, t1, t2, interval = None, report_type = 'Grants')
+                
                 output_dict[grant_name] = r.report_outputs
             return output_dict
         
@@ -490,7 +518,7 @@ class ReportFromXlsxTemplate:
                         query_dict[k]['output'] = v
                     else:
                         print(v)
-                        query_dict[k]['output'] = query_dict[k]['formatted_method'] if v.startswith('Error') else v
+                        query_dict[k]['output'] = query_dict[k]['formatted_method'] if v is None or v.startswith('Error') else v
             
         query_dict = convert_df_to_dict(self.base_df)
         outer_dict = format_dict_for_report(query_dict)
@@ -509,7 +537,7 @@ class ReportFromXlsxTemplate:
                 prefix_groups[prefix][key] = item
 
             result = {}
-            keys_to_keep = ['metric','comments', 'output']
+            keys_to_keep = ['method','metric','comments', 'output']
             for prefix, items in prefix_groups.items():
                 # ---- Group by where_used ----
                 where_used_groups = defaultdict(dict)
@@ -528,17 +556,21 @@ class ReportFromXlsxTemplate:
                 for wu, entries in where_used_groups.items():
                     if wu == "Narrative":
                         # sort by first element of B_num
-                        print(entries)
+                        #print(entries)
                         sorted_keys = sorted(
                             entries.keys(),
                             key=lambda k: entries[k]["narrative_number"][0]
                         )
+                    
                     else:
-                        print(entries)
-                        # sort by first element of _num
-                        sorted_keys = sorted(
-                            entries.keys(),
-                            key=lambda k: entries[k]["report_row"][0])
+                        try:
+                            #print(entries)
+                            # sort by first element of _num
+                            sorted_keys = sorted(
+                                entries.keys(),
+                                key=lambda k: entries[k]["report_row"][0])
+                        except KeyError:
+                            sorted_keys = sorted(entries.keys())
 
                     # rebuild dictionary in sorted order
                     sorted_groups[wu] = {k: entries[k] for k in sorted_keys}
@@ -586,7 +618,7 @@ class ReportFromXlsxTemplate:
         grouped_sorted_narr = reformat_all_narratives(grouped_sorted, self.narrative_df)
         return grouped_sorted_narr
     
-    def report_to_excel(self, file_path, spacer_rows = 1, 
+    def report_to_excel(self, file_path, spacer_rows = 1, include_method = True,
                         format_dict = {
                         'standard': {'text_wrap': True},
                         'chart_title':{'align': 'center', 'bold':True, 'bg_color':'#DAEFF5','text_wrap':True,'underline':True},
@@ -609,6 +641,7 @@ class ReportFromXlsxTemplate:
             query_title = query_contents.get("metric")
             row_number = query_contents.get("report_row")
             comments = query_contents.get("comments")
+            method = query_contents.get("method")
 
             # add title
             if isinstance(query_df, pd.DataFrame):
@@ -630,8 +663,14 @@ class ReportFromXlsxTemplate:
                 worksheet.write(row, 1, comments)
                 row += 1
             
+            if include_method and method:
+                worksheet.set_row(row, None, info_comments_format)
+                worksheet.write(row, 0, "Neon_Queries Method:", info_format)
+                worksheet.write(row, 1, method)
+                row += 1
+            
             if isinstance(query_df, pd.DataFrame):
-                #print(query_name)
+                print(query_name)
                 column_levels = query_df.columns.nlevels
                 if column_levels > 1:
                     query_df = query_df.reset_index()
@@ -673,8 +712,8 @@ class ReportFromXlsxTemplate:
             worksheet.set_column('A:Z', 18, standard_format)
             row = 1
             if sheet_name.endswith('Narrative'):
-                print(sheet_name)
-                print(query_dict)
+                #print(sheet_name)
+                #print(query_dict)
                 for narrative_name, narrative_dict in query_dict.items():
                     worksheet.merge_range(row, 0, row, 3, narrative_name.upper(), narrative_title_format)
                     row += 1
@@ -690,9 +729,18 @@ class ReportFromXlsxTemplate:
             else:
                 for query_name, query_contents in query_dict.items():
                     row = format_lone_output(query_name, query_contents, worksheet, row)
+            
+        def count_sheet_names(output_dict):
+            all_keys = set()
+            for sub_dict in output_dict.values():
+                if isinstance(sub_dict, dict):
+                    all_keys.update(sub_dict.keys())
+            return len(all_keys)
+
         
 
         if file_path.endswith('xlsx'):
+            # making one excel file, everyone is happy
             writer = pd.ExcelWriter(file_path, engine='xlsxwriter')
             workbook = writer.book
 
@@ -704,11 +752,18 @@ class ReportFromXlsxTemplate:
             info_comments_format = workbook.add_format(format_dict['query_info_comments'])
             narrative_title_format = workbook.add_format(format_dict['narrative_title'])
 
+            # check if there's only one sheet name for each grant. (ie: everything is 'audit')
+            # if so, remove document key from the sheet name
+            num_sheet_names = count_sheet_names(self.output_dict)
 
             empty = pd.DataFrame()
             for grant_name, grant_dict in self.output_dict.items():
                 for document_key, data_dict in grant_dict.items():
-                    sheet_name = grant_name + " " + document_key
+                    print(grant_name)
+                    
+                    # take the first item in alias dict as the formalized grant name
+                    formal_grant_name = self.alias_dict[grant_name][0]
+                    sheet_name = formal_grant_name + " " + document_key if num_sheet_names > 1 else formal_grant_name
                     format_sheet(data_dict, sheet_name, spacer_rows)
 
 
@@ -718,7 +773,9 @@ class ReportFromXlsxTemplate:
             # create folder if doesn't exist
             os.makedirs(file_path, exist_ok=True)
             for grant_name, grant_dict in self.output_dict.items():
-                file_name = f'{grant_name}.xlsx'
+                formal_grant_name = self.alias_dict[grant_name][0]
+                file_name = f'{formal_grant_name}.xlsx'
+                #print(file_name)
                 excel_file = os.path.join(file_path, file_name)
 
                 writer = pd.ExcelWriter(excel_file, engine='xlsxwriter')

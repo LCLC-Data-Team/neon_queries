@@ -436,6 +436,8 @@ join max_end using(participant_id, stint_num));
                             result = func(*func_args, *args, **{**kwargs, **func_kwargs})
                             result_dict[result_key] = result
                         except Exception as e:
+                            print(func_name)
+                            print()
                             result_dict[result_key] = f"Error: function could not be parsed"
                 
                 except ValueError:
@@ -965,6 +967,93 @@ class Audits(Tables):
         result_df = result_df[['attorney','participant_id','case/client name', 'item', 'explanation']].sort_values(by=['attorney','participant_id'])
         
         return result_df
+    
+    @clipboard_decorator
+    def missing_address_info(self):
+        '''
+        Returns all clients missing a zipcode or community from their address
+
+        '''
+        query = f'''
+        with base as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name from {self.table}),
+        
+        ranked_addresses as (select *,
+                ROW_NUMBER() OVER (partition by participant_id ORDER BY primary_address DESC, address_id DESC, civicore_address_id asc) AS rn
+                from neon.address
+                join (select distinct participant_id from stints.neon) sn using(participant_id)),
+                address_table as(
+                select participant_id, address1, address2, city, state, zip, primary_address, community
+                from ranked_addresses
+                where rn = 1)
+
+        select participant_id, name, case when
+        zip is null and community is null then 'Community + Zip'
+        when zip is null then 'Zip'
+        else 'Community' end 'Missing', primary_address,
+        
+        address1, zip, community from base 
+        left join address_table using(participant_id)
+        where community is null or zip is null
+                '''
+        df = self.query_run(query)
+        return(df)
+
+    @clipboard_decorator
+    def missing_edu_employ(self):
+        '''
+        Checks which clients are missing education/employment info from linkages and intake
+        '''
+        def set_query(new_client_col = True):
+            query= f'''
+            with idhs as (select * from {self.table}),
+            mini_idhs as(select distinct(participant_id), first_name, last_name, program_start, {'new_client, ' if new_client_col else ''} case_managers as case_manager, outreach_workers outreach_worker from idhs),
+
+            employ as (select participant_id, linkage_org as job_name, start_date job_start, end_date job_end, employ_full_part full_or_part_time, comments job_comments from(
+            select participant_id, linkage_type, linkage_org, start_date, end_date, employ_full_part, comments,
+            ROW_NUMBER() OVER (partition by participant_id ORDER BY CASE WHEN end_date IS NULL THEN 0 ELSE 1 END ASC, end_date DESC) AS rn 
+            from neon.linkages
+            join (select distinct participant_id from idhs)i using(participant_id)
+            where start_date is not null and linkage_type regexp "employ.*|work.*"
+            order by participant_id, end_date asc) em
+            where rn = 1),
+            edu as (select participant_id, school, school_start, school_end, current_school, school_comments from (select participant_id, linkage_org school, start_date school_start, end_date school_end, educ_current_school current_school, comments school_comments,
+            ROW_NUMBER() OVER (partition by participant_id ORDER BY CASE WHEN end_date IS NULL THEN 0 ELSE 1 END ASC, end_date DESC) AS rn 
+            from neon.linkages
+            join (select distinct participant_id from idhs)i using(participant_id)
+            where start_date is not null and linkage_type regexp "educat.*"
+            order by participant_id, end_date asc) ed
+            where rn = 1),
+            intake_info as (
+            select participant_id, intake_date, have_diploma_ged, currently_enrolled, last_grade_completed, currently_employed from (select distinct participant_id from idhs) ii
+            join (select participant_id, max(intake_date) intake_date from neon.intake group by participant_id) i using(participant_id)
+            join neon.intake using(participant_id, intake_date)),
+            big_table as(
+            select * from mini_idhs
+            left join intake_info using(participant_id)
+            left join employ using(participant_id)
+            left join edu using(participant_id))
+
+            select participant_id, concat(first_name, " ",left(last_name,1), ".") name, {'new_client, ' if new_client_col else ''} program_start, concat(left(first_name, 1),left(last_name,1)) client_initials, case_manager,
+            case when job_start is not null and (job_end is null or job_end >= {self.q_t2}) then 'Yes'
+                when (job_end is not null or job_end < {self.q_t2}) then 'No'
+                else currently_employed end as currently_employed,
+                full_or_part_time, 
+            case when school_start is not null and (school_end is null or school_end >= {self.q_t2}) and (current_school is null or current_school = 'Yes')then 'Yes'
+                when (school_end is not null and school_end < {self.q_t2}) then 'No'
+                else currently_enrolled end as currently_enrolled, have_diploma_ged,
+                last_grade_completed
+            from big_table
+            where currently_employed is null and currently_enrolled is null
+                    '''
+            return query
+        try:
+            query = set_query(True)
+            df = self.query_run(query)
+        except Exception as e:
+            query = set_query(False)
+            df = self.query_run(query)
+        return df
+
 
     ### SERVICE-SPECIFIC SHINY STUFF
     @clipboard_decorator
@@ -1011,6 +1100,50 @@ class Audits(Tables):
         df = self.query_run(query)
         return(df)
     
+    def cm_missing_clinical_assess(self):
+        '''Gets clients missing initial/post assessments for the PCL/Buss-Perry
+        
+        Note:
+            Audit - Clients Missing Clinical Assessments
+        '''
+
+        query = f'''with part as(
+        select participant_id, concat(first_name," ", left(last_name,1),".") client_initials, case_managers case_manager, service_start from {self.table}),
+
+        bp as (select * from assess.cm_tracker
+        where assessment_type = 'BP'),
+
+        pcl as (select * from assess.cm_tracker
+        where assessment_type = 'PCL'),
+
+        long_bp as(
+        select case_manager, participant_id, client_initials, 'Buss-Perry Missing' as assess_status from part
+        left join bp using(participant_id)
+        where case_manager is not null and assessment_type is null
+        union all
+        select case_manager, participant_id, client_initials, 'Buss-Perry Needs Update' as assess_status from part
+        left join bp using(participant_id)
+        where case_manager is not null and total_assess = 1 and latest_date < (DATE_ADD({self.t1}, INTERVAL -6 MONTH))
+        order by case_manager asc, assess_status desc),
+
+        long_pcl as(
+        select case_manager, participant_id, client_initials, 'PCL-5 Missing' as assess_status from part
+        left join pcl using(participant_id)
+        where case_manager is not null and assessment_type is null
+        union all
+        select case_manager, participant_id, client_initials, 'PCL-5 Needs Update' as assess_status from part
+        left join pcl using(participant_id)
+        where case_manager is not null and total_assess = 1 and latest_date < (DATE_ADD({self.t1}, INTERVAL -6 MONTH))
+        order by case_manager asc, assess_status desc)
+
+        select case_manager, client_initials, participant_id, assess_status as 'Assessment Status' from   
+        (select * from long_bp
+        union all
+        select * from long_pcl) l 
+        order by case_manager, participant_id asc'''
+        df = self.query_run(query)
+        return(df)
+    
     @clipboard_decorator
     def cm_linkage_totals(self):
         '''
@@ -1029,7 +1162,49 @@ class Audits(Tables):
         '''
         df = self.query_run(query)
         return(df)
+    
+    @clipboard_decorator
+    def cm_linkage_timeframe_info(self):
+        '''
+        Table of all linkages in timeframe, ordered by CM
+
+        Note:
+            Linkages - All Linkages in Timeframe w/ Info
+        '''
+
+        query = f"""
+select entered_by case_manager, participant_id, name,
+case when linkage_type is null then concat('LCLC - ', internal_program) else concat(linkage_type, ' - ', linkage_org) end linkage_type, client_initiated, linked_date, start_date, comments
+from neon.linkages
+        join (select distinct participant_id, concat(first_name," ", left(last_name,1),".") name from {self.table} where service_type = 'case management') i using(participant_id)
+        where linked_date between {self.q_t1} and {self.q_t2}
+order by case_manager, participant_id
+"""
+        df = self.query_run(query)
+        return(df)
         
+
+    @clipboard_decorator
+    def outreach_missing_eligibility(self):
+        '''
+        Returns info on ALL CLIENTS missing an outreach eligibility form
+
+        Note:
+            Audit - Missing Outreach Eligibility
+        '''
+        query = f'''
+with base as (select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, outreach_workers, min(program_start) program_start
+  from {self.table}
+  where case_managers is not null or outreach_workers is not null
+group by participant_id, name, case_managers, outreach_workers)
+
+select participant_id, name, case_managers, outreach_workers, 'Missing Outreach Eligibility' from base
+left join assess.outreach_eligibility using(participant_id)
+where assessment_date is null or program_start > assessment_date 
+'''
+        df = self.query_run(query)
+        return(df)
+
     @clipboard_decorator
     def outreach_missing_assessments(self):
         '''
@@ -1597,12 +1772,13 @@ class Queries(Audits):
 
 
     @clipboard_decorator
-    def custody_status(self, summary_table = False):
+    def custody_status(self, summary_table = False, custody_type = None):
         '''
         Returns a table of clients' most recent custody statuses
 
         Parameters:
             summary_table (Bool): groups clients by latest custody status. Defaults to False
+            custody_type (str): subset of custody statuses to return. Options match those in Neon and include: ['Missing', 'In Custody', 'In Community + EM', 'Electronic Monitoring', 'Warrant']
 
         Examples:
             Get a record of each clients' latest custody status::
@@ -1631,7 +1807,7 @@ class Queries(Audits):
         group by participant_id)  c
         using(participant_id, custody_status_id)),
         cust_table as(
-        select participant_id, first_name, last_name, program_start, case when custody_status is null then 'MISSING' else custody_status end as custody_status, custody_status_date from parts
+        select participant_id, concat(first_name, " ",left(last_name,1), ".") name, program_start, case when custody_status is null then 'MISSING' else custody_status end as custody_status, custody_status_date from parts
         left join cust using(participant_id))
         '''
         if summary_table:
@@ -1639,7 +1815,9 @@ class Queries(Audits):
                             from cust_table
                             group by custody_status'''
         else:
-            addendum = f'''select * from cust_table'''
+            where_statement = f'where custody_status = "{custody_type}"' if custody_type else ''
+            addendum = f'''select * from cust_table 
+            {where_statement}'''
 
         query = query + ' ' + addendum
 
@@ -2144,7 +2322,37 @@ class Queries(Audits):
         df = self.query_run(query)
         return df
 
+    def idhs_incidents(self, CPIC = True):
+        '''
+        Returns incident analysis for CPIC/non-CPIC notifications
 
+        Example:
+            Get a CPIC notification breakdown for IDHS::
+
+                e.idhs_incidents()
+            
+            Get a non-CPIC notification breakdown for IDHS::
+
+                e.idhs_incidents(False)
+        
+        Note:
+            Grants: IDHS - VP Incident Tally
+        '''
+        if CPIC:
+            query = f'''SELECT type_incident,
+            count(case when num_deceased > 0 then incident_id else null end) as fatal,
+            count(case when num_deceased = 0 then incident_id else null end) as non_fatal
+            FROM neon.critical_incidents
+            where how_hear regexp '.*cpic.*' and incident_date between {self.q_t1} and {self.q_t2}
+            group by type_incident'''
+        else:
+            query = f'''select how_hear, count(incident_id) count from neon.critical_incidents
+            where incident_date between {self.q_t1} and {self.q_t2}
+            group by how_hear'''
+        df = self.query_run(query)
+        return df
+
+        
     def incident_response(self, cpic_distinguish=True, as_pct = False):
         '''
         counts incidents responded to in timeframe
@@ -2200,7 +2408,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         return df
 
     @clipboard_decorator
-    def isp_tracker(self, just_cm = True, summary_table = False, service_days_cutoff = 45):
+    def isp_tracker(self, just_cm = True, summary_table = False, service_days_cutoff = 45, missing_only = False):
         '''
         Returns a table of client service plan statuses or a table summarizing overall plan completion.
 
@@ -2224,15 +2432,15 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
 
         if just_cm == True:
             prog_serv = 'service'
-            base_table = f'''select participant_id, first_name, last_name, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
-            (select participant_id, first_name, last_name, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
+            base_table = f'''select participant_id, first_name, last_name, case_managers, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
+            (select participant_id, first_name, last_name, case_managers, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
             join 
                 (select participant_id, {prog_serv}_type, max({prog_serv}_start) as {prog_serv}_start from {self.table}
                 where {prog_serv}_type = 'case management' group by participant_id, {prog_serv}_type) st 
             using(participant_id, {prog_serv}_type, {prog_serv}_start)) serv'''
         if just_cm == False:
             prog_serv = 'program'
-            base_table = f'''select participant_id, first_name, last_name, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
+            base_table = f'''select participant_id, first_name, last_name, case_managers, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
             (select distinct participant_id, first_name, last_name, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
             join 
                 (select participant_id, max({prog_serv}_start) as {prog_serv}_start from  {self.table}
@@ -2259,7 +2467,12 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         '''
 
         if summary_table == False:
-            modifier = '''select * from big_table'''
+            missing_str = 'where total_goals is null' if missing_only else ''
+            modifier = f'''select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers,
+                            custody_status, {prog_serv}_days days_enrolled, latest_assm_date, latest_update, 
+                            total_goals, goals_completed from big_table
+                            {missing_str}
+                            '''
         
         if summary_table == True:
             modifier = f'''
@@ -2311,7 +2524,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
 
         if missing_names:
             modifier = f'''
-            select first_name, last_name, participant_id from discharged_isps where isp_start is null
+            select concat(first_name, " ",left(last_name,1), ".") name, participant_id from discharged_isps where isp_start is null
             '''
         else:
             modifier = f'''
@@ -3931,36 +4144,6 @@ select * from ages'''
         return df
 
 
-    def idhs_incidents(self, CPIC = True):
-        '''
-        Returns incident analysis for CPIC/non-CPIC notifications
-
-        Example:
-            Get a CPIC notification breakdown for IDHS::
-
-                e.idhs_incidents()
-            
-            Get a non-CPIC notification breakdown for IDHS::
-
-                e.idhs_incidents(False)
-        
-        Note:
-            Grants: IDHS - VP Incident Tally
-        '''
-        if CPIC:
-            query = f'''SELECT type_incident,
-            count(case when num_deceased > 0 then incident_id else null end) as fatal,
-            count(case when num_deceased = 0 then incident_id else null end) as non_fatal
-            FROM neon.critical_incidents
-            where how_hear regexp '.*cpic.*' and incident_date between {self.q_t1} and {self.q_t2}
-            group by type_incident'''
-        else:
-            query = f'''select how_hear, count(incident_id) count from neon.critical_incidents
-            where incident_date between {self.q_t1} and {self.q_t2}
-            group by how_hear'''
-        df = self.query_run(query)
-        return df
-
     def idhs_r_schooling_gender(self):
         '''
         Returns client gender counts broken out by schooling status
@@ -4136,7 +4319,6 @@ left join partners using(linkage_type)
 
         df = self.query_run(query)
         return df
- 
 
     def ryds_ages(self):
         '''
