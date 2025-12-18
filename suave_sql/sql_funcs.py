@@ -684,6 +684,25 @@ join max_end using(participant_id, stint_num));
 class Audits(Tables):
     def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True, cloud_run=False):
         super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
+    @clipboard_decorator
+    def active_missing_intake(self):
+        '''
+        Returns a table of active clients with no intake
+        
+        '''
+
+        query = f'''
+        select distinct participant_id, 
+  concat(first_name," ", left(last_name,1),".") client_name, program_type,
+  program_start, case_managers, attorneys, outreach_workers
+  from {self.table}
+left join (select participant_id, max(intake_date) intake_date from neon.intake 
+  group by participant_id) i using(participant_id)
+where intake_date is null and program_end is null and program_type not regexp "deer.*|violence.*" and
+  (case_managers is not null or outreach_workers is not null or attorneys is not null)
+'''
+        df = self.query_run(query)
+        return(df)
 
     @clipboard_decorator
     def program_lacks_services(self):
@@ -975,7 +994,7 @@ class Audits(Tables):
 
         '''
         query = f'''
-        with base as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name from {self.table}),
+        with base as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers from {self.table}),
         
         ranked_addresses as (select *,
                 ROW_NUMBER() OVER (partition by participant_id ORDER BY primary_address DESC, address_id DESC, civicore_address_id asc) AS rn
@@ -986,7 +1005,7 @@ class Audits(Tables):
                 from ranked_addresses
                 where rn = 1)
 
-        select participant_id, name, case when
+        select participant_id, name, case_managers, case when
         zip is null and community is null then 'Community + Zip'
         when zip is null then 'Zip'
         else 'Community' end 'Missing', primary_address,
@@ -1142,6 +1161,7 @@ class Audits(Tables):
         select * from long_pcl) l 
         order by case_manager, participant_id asc'''
         df = self.query_run(query)
+        df = df.drop_duplicates()
         return(df)
     
     @clipboard_decorator
@@ -1795,7 +1815,7 @@ class Queries(Audits):
         
         query = f'''
         with parts as (
-        select distinct participant_id, first_name, last_name, program_start
+        select distinct participant_id, first_name, last_name, case_managers, attorneys, program_start
         from {self.table}),
         cust_elig as (select * from parts
         join neon.custody_status using(participant_id)
@@ -1807,7 +1827,7 @@ class Queries(Audits):
         group by participant_id)  c
         using(participant_id, custody_status_id)),
         cust_table as(
-        select participant_id, concat(first_name, " ",left(last_name,1), ".") name, program_start, case when custody_status is null then 'MISSING' else custody_status end as custody_status, custody_status_date from parts
+        select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, attorneys, program_start, case when custody_status is null then 'MISSING' else custody_status end as custody_status, custody_status_date from parts
         left join cust using(participant_id))
         '''
         if summary_table:
@@ -1815,7 +1835,7 @@ class Queries(Audits):
                             from cust_table
                             group by custody_status'''
         else:
-            where_statement = f'where custody_status = "{custody_type}"' if custody_type else ''
+            where_statement = f'where custody_status = "{custody_type}" and (case_managers is not null or attorneys is not null)' if custody_type else ''
             addendum = f'''select * from cust_table 
             {where_statement}'''
 
@@ -3727,9 +3747,9 @@ class Grants(Queries):
         neighborhood_regexp = "|".join(neighborhood_list)
 
         query = f'''
-        select participant_id, concat(first_name, " ",left(last_name,1), ".") name, address1, zip, community
+        select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, address1, zip, community
         from neon.address_latest
-        right join (select distinct participant_id, first_name, last_name from {self.table}) s using(participant_id)
+        right join (select distinct participant_id, first_name, last_name, case_managers from {self.table}) s using(participant_id)
         where community is null or community not regexp "{neighborhood_regexp}"
         '''
         df = self.query_run(query)
@@ -4351,19 +4371,20 @@ left join partners using(linkage_type)
         df = self.query_run(query)
         return df
     
-    def ryds_cirriculum(self, summary_table = True):
+    def ryds_curriculum(self, summary_table = True, sessions_per_unit = 2):
         '''
-        Returns a table of cirriculum completion information for clients, by default grouped in a summary_table.  
+        Returns a table of curriculum completion information for clients, by default grouped in a summary_table.  
 
         Parameters:
             summary_table: True returns a table with bins matching the PPR report. False returns one row per client, with information on which units are missing.
+            sessions_per_unit: # of sessions it takes to complete an RYDS unit. Defaults to 2
         Note:
-            Grants: IDHS - RYDS Cirriculum Completion
+            Grants: IDHS - RYDS Curriculum Completion
         '''
         
         query = f'''
         with complete_table as 
-        (select *, (case when num_sessions = 1 then .5 else 1 end) unit_completion from 
+        (select *, (case when num_sessions {'=' if sessions_per_unit == 2 else '<'} 1 then .5 else 1 end) unit_completion from 
         (select participant_id, unit_number, count(participant_id) num_sessions from 
             (select participant_id, attendance, REGEXP_REPLACE(unit_number, '[^0-9]+', '') unit_number from neon.activities_attendance) AA
         WHERE unit_number REGEXP '[0-9]' and attendance = 'Attended'
@@ -4410,6 +4431,11 @@ left join partners using(linkage_type)
             axis=1)
         # revert to string
         df['missing_units'] = df['missing_units'].transform(lambda x: ','.join(map(str, x)))
+        
+        # chuck partial column if only one session per unit
+        if sessions_per_unit == 1:
+            df = df.drop('partial_units', axis=1)
+
         return df
     
     def victim_services_sessions(self, timeframe=True, services_per_client=False):
