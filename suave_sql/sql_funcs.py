@@ -3074,12 +3074,17 @@ from (select * from total_row
 
         service_statement = "where service_type = 'case management'" if just_cm else ''
         initiated_statement = "and client_initiated = 'LCLC Staff'" if lclc_initiated else ''
+        prog_serv_start = 'service' if just_cm else 'program'
         
-        query = f'''with parts as  (select distinct(participant_id), program_start from {self.table}
+        query = f'''with parts as  (select distinct(participant_id), {prog_serv_start}_start,
+         case when datediff(current_date(), {prog_serv_start}_start) > 90 then 'cont' else 'new' end client_status,
+         case when custody_status like 'in custody' then 'Yes' else 'No' end 'if_incarcerated'
+          from {self.table}
+        left join neon.custody_status_latest using(participant_id)
         {service_statement}),
-        base as (select *, timestampdiff(month, program_start, linked_date) month_diff, timestampdiff(month, linked_date, {self.q_t2}) recent_diff from neon.linkages
+        base as (select *, timestampdiff(month, {prog_serv_start}_start, linked_date) month_diff, timestampdiff(month, linked_date, {self.q_t2}) recent_diff from neon.linkages
         join parts using(participant_id)
-        where (linked_date > program_start or start_date > program_start) and linked_date <= {self.q_t2} {initiated_statement}),
+        where (linked_date > {prog_serv_start}_start or start_date > {prog_serv_start}_start) and linked_date <= {self.q_t2} {initiated_statement}),
         recent_links as (
         select participant_id, count(linkage_id) total_links,
         count(case when month_diff < 4 then linkage_id else null end) first_3,
@@ -3089,14 +3094,15 @@ from (select * from total_row
         from base
         group by participant_id)
 
-        select count(distinct participant_id) as total_clients,
+        select client_status, if_incarcerated, count(distinct participant_id) as total_clients,
         count(case when total_links > 0 then participant_id else null end) as has_links,
         count(case when first_3 > 0 then participant_id else null end) as first_3,
         count(case when first_6 > 0 then participant_id else null end) as first_6,
         count(case when first_9 > 0 then participant_id else null end) as first_9,
         count(case when this_month > 0 then participant_id else null end) as this_month
         from parts
-        left join recent_links using(participant_id)'''
+        left join recent_links using(participant_id)
+        group by client_status, if_incarcerated'''
         df = self.query_run(query)
         return(df)
    
