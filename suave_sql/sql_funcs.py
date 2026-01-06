@@ -1215,7 +1215,7 @@ order by case_manager, participant_id
         query = f'''
 with base as (select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, outreach_workers, min(program_start) program_start
   from {self.table}
-  where case_managers is not null or outreach_workers is not null
+  where case_managers is not null or outreach_workers is not null or service_type = 'civic engagement'
 group by participant_id, name, case_managers, outreach_workers)
 
 select participant_id, name, case_managers, outreach_workers, 'Missing Outreach Eligibility' from base
@@ -1994,7 +1994,7 @@ class Queries(Audits):
         def set_query(new_client_col = True):
             query = f'''
             with idhs as (select * from {self.table}),
-            mini_idhs as(select distinct(participant_id), first_name, last_name, program_start,  case_managers as case_manager, outreach_workers outreach_worker from idhs),
+            mini_idhs as(select distinct(participant_id), {'new_client, ' if new_client_col else ''} first_name, last_name, program_start,  case_managers as case_manager, outreach_workers outreach_worker from idhs),
 
             employ as (select participant_id, linkage_org as job_name, start_date job_start, end_date job_end, employ_full_part full_or_part_time, comments job_comments from(
             select participant_id, linkage_type, linkage_org, start_date, end_date, employ_full_part, comments,
