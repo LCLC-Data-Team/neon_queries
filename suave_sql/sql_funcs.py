@@ -2959,7 +2959,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
   else concat(goal_domain, '.*') end goal_regexp
   from neon.isp_goals),
 
-  parts as (select participant_id, min(program_start) program_start from {self.table}
+  parts as (select participant_id, min(program_start) program_start, max(program_end) program_end from {self.table}
   {f'where service_type = "case management" and program_end between {self.q_t1} and {self.q_t2}' if discharged_only else ''}
    group by participant_id),
 
@@ -2973,7 +2973,7 @@ long_link as (select participant_id, linkage_id,
   when internal_program = 'housing' then 'Housing' else linkage_type end linkage_type,
   linkage_org, 
   case when start_date is null and (end_date is null or end_date > {self.q_t2}) then 'unstarted'
-  when start_date is not null and (end_date is null or end_date > {self.q_t2}) then 'active'
+  when start_date is not null and (end_date is null or end_date > {self.q_t2} {f' or abs(datediff(program_end, end_date))< 5' if discharged_only else ''}) then 'active'
   else 'concluded' end linkage_status
   from neon.linkages
 join parts using(participant_id)
@@ -2985,10 +2985,11 @@ extra_long_link as (
   union all
   select participant_id, linkage_id, case when goal_domain like "education%" then 'Education' else goal_domain end as linkage_type, linkage_org,
   case when start_date is null and (end_date is null or end_date > {self.q_t2}) then 'unstarted'
-  when start_date is not null and (end_date is null or end_date > {self.q_t2}) then 'active'
+  when start_date is not null and (end_date is null or end_date > {self.q_t2} {f' or abs(datediff(program_end, end_date))< 5' if discharged_only else ''}) then 'active'
   else 'concluded' end linkage_status from neon.isp_goals_linkages
   join neon.isp_goals using(goal_id)
   join neon.linkages using(linkage_id, participant_id)
+  join parts using(participant_id)
 where linkage_id not in (select distinct linkage_id from long_link)),
 
 grouped_link as (
@@ -3760,7 +3761,86 @@ class Grants(Queries):
         '''
         df = self.query_run(query)
         return df
+    
+    def a2j_intake(self):
+        '''
+        Returns table for a2j's intake csv template (in use as of aug '25)
+        
+        Requires user to edit columns: Case Type, Case Subtype. 
+        User should also delete contents from all columns after zip. 
+            Their info corresponds to the mycase_id, legal_id, and case name in MyCase, 
+            and is only included for completing the Case Type and Subtype fields
+        '''
+        month_name = datetime.strptime(self.t1, "%Y-%m-%d").strftime("%B")
+        query = f'''
+        with parts as (
+        select distinct participant_id, first_name, last_name, gender, race, ethnicity, zip from neon.basic_info
+        left join neon.address_latest using(participant_id)),
 
+        merge as (select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, juvenile_adult, case_start, case_type from parts
+        join neon.legal_mycase using(participant_id)
+        where case_start between {self.q_t1} and {self.q_t2})
+
+
+
+        select 'LS Intake' as import_type, '{month_name}' as reporting_month, participant_id, null as assessment_location, case_start as intake_date,
+        case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' else juvenile_adult end case_type,
+        case_type as case_subtype, gender, 
+        case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
+        case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, mycase_id, legal_id, mycase_name 
+        from merge
+        '''
+        df = self.query_run(query)
+        df.columns = ["Import Type", "Reporting Month", "Unique Client ID", "Assessment Location", "Intake/Assessment Date","Case Type", "Case Subtype","Gender","Race", "Hispanic/Latino", "Residential Zip Code","Issue Presented","Impact of Incarceration","Notes"]
+        return df
+
+    def a2j_import(self):
+        '''
+        Returns table for a2j's import csv template (in use as of aug '25)
+
+        Requires user to edit columns: Case Type, Case Subtype, Type of Service Provided, Case Outcome-General
+        If additional information is needed, "Unique Case Number" corresponds to a case's MyCase ID
+        '''
+
+        month_name = datetime.strptime(self.t1, "%Y-%m-%d").strftime("%B")
+        query = f'''with parts as (
+select distinct participant_id, first_name, last_name, gender, race, ethnicity, zip from neon.basic_info
+left join neon.address_latest using(participant_id)),
+
+merge as (select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, juvenile_adult, case_start, case_outcome_date, case_type, case_outcome, sentence from parts
+join neon.legal_mycase using(participant_id)
+where case_outcome_date between {self.q_t1} and {self.q_t2}),
+
+merge_link as (select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, 
+          juvenile_adult, linked_date, case_start, null case_outcome_date, case_type, null as case_outcome, null as sentence from parts
+join neon.legal_mycase using(participant_id)
+join (select distinct participant_id, max(linked_date) linked_date from neon.linkages where linked_date between {self.q_t1} and {self.q_t2} and client_initiated = 'LCLC Staff' group by participant_id) c using(participant_id)
+          join (select participant_id, max(mycase_id) mycase_id from neon.legal_mycase where case_end is null group by participant_id) l using(participant_id, mycase_id)
+)
+
+
+select 'Case' as import_type, '{month_name}' as reporting_month, 
+mycase_id, case_start, case_start, case_outcome_date,
+case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' else juvenile_adult end case_type,
+case_type as case_subtype, case_outcome, sentence, gender,
+   
+case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
+case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
+from merge
+
+UNION ALL
+
+select 'Additional Support Services' as import_type, '{month_name}' as reporting_month, 
+mycase_id, linked_date, case_start, case_outcome_date,
+case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' else juvenile_adult end case_type,
+case_type as case_subtype, case_outcome, sentence, gender,
+case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
+case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
+from merge_link;'''
+        
+        df = self.query_run(query)
+        df.columns = ["Import Type","Reporting Month","Unique Case Number","Start Date","Date Case Filed", "Case Closing Date", "Case Type", "Case Subtype", "Type of Service Provided", "Case Outcome-General","Gender", "Race", "Hispanic/Latino", "Residential Zip Code", "Case is in Illinois Jurisdiction","Notes"]
+        return df
 
     def cvi_demographics(self):
         '''
