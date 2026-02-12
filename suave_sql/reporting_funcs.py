@@ -340,14 +340,15 @@ class Report:
         return output_dict
 
 class ReportFromXlsxTemplate:
-    def __init__(self, excel_file_path, t1, t2,engine, include_grants = [], include_tabs = []):  
+    def __init__(self, excel_file_path, t1=None, t2=None,engine=None, include_grants = [], include_tabs = []):  
         '''
-        Process a Report Template file and run reports for each grant represented in the file. 
+        Process a Report Template file and run reports for each grant represented in the file.
+        t1, t2, and engine can be set to None for the purpose of reformatting an excel sheet exclusively. 
         The formatted df is preserved as .base_df, the dictionary of outputs/queries is preserved as .query_dict
         
         Parameters:
             excel_file_path: path to your completed Report Template
-            t1: start date of report period, formatted as 'YYYY-MM-DD'
+            t1: start date of report period, formatted as 'YYYY-MM-DD'. 
             t2: end date of report period, formatted as 'YYYY-MM-DD'
             engine: mysql engine
             include_grants (optional): subset of grants within the excel file to include. Can include 'all' for non-grant requests
@@ -375,8 +376,10 @@ class ReportFromXlsxTemplate:
         self.filter_query_df(include_grants, self.include_tabs)
 
         self.base_df = self.parse_df(self.base_df)
-        query_dict = self.generate_output_dictionary(t1, t2, engine)
-        self.output_dict = self.format_output_dictionary(query_dict)
+        self.format_dictionary()
+        if t1 and t2 and engine:
+            self.generate_output_dictionary(t1, t2, engine)
+        self.output_dict = self.format_output_dictionary(self.query_dict)
 
     def filter_query_df(self, grant_list, tab_list):
         '''
@@ -491,8 +494,9 @@ class ReportFromXlsxTemplate:
         #print(df)
         return df
     
-    
-    def generate_output_dictionary(self, t1, t2,engine):
+    def format_dictionary(self):
+        '''
+        '''
         def convert_df_to_dict(df):
             query_dict = {}
             for _, row in df.iterrows():
@@ -510,7 +514,18 @@ class ReportFromXlsxTemplate:
             for k, v in query_dict.items():
                 outer_dict[k.split('_')[0]][k] = v['formatted_method']
             return outer_dict
+        
+        query_dict = convert_df_to_dict(self.base_df)
+        outer_dict = format_dict_for_report(query_dict)
+        self.formatted_report_dict = outer_dict
+        self.query_dict = query_dict
+        print('dictionary reformatted as .formatted_report_dict')
+        return('dictionary reformatted as .formatted_report_dict')
 
+    def generate_output_dictionary(self, t1, t2,engine, function_dict = None):
+        '''
+        when function_dict = None, self.formatted_report_dict is used
+        '''
         def actually_run_report(outer_dict):
             output_dict = {}
             for grant_name, grant_funcs in outer_dict.items():
@@ -528,21 +543,20 @@ class ReportFromXlsxTemplate:
                 output_dict[grant_name] = r.report_outputs
             return output_dict
         
-        def add_outputs_to_query_dict(output_dict):
+        def add_outputs_to_query_dict(output_dict, full_query_dict):
             for full_grant_dict in output_dict.values():
                 for k, v in full_grant_dict.items():
                     if isinstance(v, pd.DataFrame):
-                        query_dict[k]['output'] = v
+                        full_query_dict[k]['output'] = v
                     else:
                         #print(v)
-                        query_dict[k]['output'] = query_dict[k]['formatted_method'] if v is None or v.startswith('Error') else v
-            
-        query_dict = convert_df_to_dict(self.base_df)
-        outer_dict = format_dict_for_report(query_dict)
-        output_dict =  actually_run_report(outer_dict)
-        add_outputs_to_query_dict(output_dict)
-        self.query_dict = query_dict
-        return query_dict
+                        full_query_dict[k]['output'] = full_query_dict[k]['formatted_method'] if v is None or v.startswith('Error') else v
+        
+        if not function_dict:
+            function_dict = self.formatted_report_dict
+        output_dict =  actually_run_report(function_dict)
+        add_outputs_to_query_dict(output_dict, self.query_dict)
+        return self.query_dict
     
     def format_output_dictionary(self, query_dict):
         def group_and_sort(data):
@@ -633,7 +647,35 @@ class ReportFromXlsxTemplate:
 
         grouped_sorted = group_and_sort(query_dict)
         grouped_sorted_narr = reformat_all_narratives(grouped_sorted, self.narrative_df)
+
+        self.flattened_output_dict = {(in_k if u == 'all' else f"{self.alias_dict[u][1]}: {in_k}"): in_v
+                for u, inner_dict in grouped_sorted_narr.items()
+                for in_k, in_v in inner_dict.items()}
+
         return grouped_sorted_narr
+    
+    def find_missing_outputs(self, flattened_key):
+        needed_queries = []
+        missing_candidates = self.flattened_output_dict[flattened_key]
+        for lone_query_key, lone_query_dict in missing_candidates.items():
+            #print(lone_query_dict)
+            if 'output' not in lone_query_dict:
+                needed_queries.append(lone_query_key)
+        
+        needed_outputs = {k: inner_match 
+            for k, v in self.formatted_report_dict.items() 
+            if (inner_match := {ik: iv for ik, iv in v.items() if ik in needed_queries})}
+       
+        return needed_outputs
+
+
+    def add_missing_outputs(self, flattened_key, engine, t1, t2):
+        missing_outputs = self.find_missing_outputs(flattened_key)
+        if missing_outputs:
+            self.generate_output_dictionary(t1, t2, engine, missing_outputs)
+            self.output_dict = self.format_output_dictionary(self.query_dict)
+
+
     
     def report_to_excel(self, file_path, spacer_rows = 1, include_method = True,
                         format_dict = {
