@@ -538,6 +538,7 @@ class ReportFromXlsxTemplate:
                     r = Report(funcz, standard_inputs, t1, t2, interval = None, report_type = 'Queries')
                 else:
                     standard_inputs['grant_type'] = grant_name
+                    standard_inputs['default_table'] = 'stints.neon'
                     r = Report(funcz, standard_inputs, t1, t2, interval = None, report_type = 'Grants')
                 
                 output_dict[grant_name] = r.report_outputs
