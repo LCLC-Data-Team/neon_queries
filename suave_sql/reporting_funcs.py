@@ -522,16 +522,16 @@ class ReportFromXlsxTemplate:
         print('dictionary reformatted as .formatted_report_dict')
         return('dictionary reformatted as .formatted_report_dict')
 
-    def generate_output_dictionary(self, t1, t2,engine, function_dict = None):
+    def generate_output_dictionary(self, t1, t2,engine, function_dict = None, default_table = None):
         '''
         when function_dict = None, self.formatted_report_dict is used
         '''
-        def actually_run_report(outer_dict):
+        def actually_run_report(outer_dict, default_table):
             output_dict = {}
             for grant_name, grant_funcs in outer_dict.items():
                 standard_inputs = {
                     'engine': engine,'print_SQL': False,'clipboard': False,'mycase': True,
-                    'default_table': 'stints.neon'}
+                    'default_table': default_table}
                 funcz = grant_funcs
 
                 if grant_name == 'all':
@@ -554,7 +554,8 @@ class ReportFromXlsxTemplate:
         
         if not function_dict:
             function_dict = self.formatted_report_dict
-        output_dict =  actually_run_report(function_dict)
+        default_table = "stints.neon" if not default_table else default_table
+        output_dict =  actually_run_report(function_dict, default_table)
         add_outputs_to_query_dict(output_dict, self.query_dict)
         return self.query_dict
     
@@ -648,6 +649,7 @@ class ReportFromXlsxTemplate:
         grouped_sorted = group_and_sort(query_dict)
         grouped_sorted_narr = reformat_all_narratives(grouped_sorted, self.narrative_df)
 
+        # flattened_output_dict used 4 shiny
         self.flattened_output_dict = {(in_k if u == 'all' else f"{self.alias_dict[u][1]}: {in_k}"): in_v
                 for u, inner_dict in grouped_sorted_narr.items()
                 for in_k, in_v in inner_dict.items()}
