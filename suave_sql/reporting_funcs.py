@@ -671,10 +671,10 @@ class ReportFromXlsxTemplate:
         return needed_outputs
 
 
-    def add_missing_outputs(self, flattened_key, engine, t1, t2):
+    def add_missing_outputs(self, flattened_key, engine, t1, t2, default_table=None):
         missing_outputs = self.find_missing_outputs(flattened_key)
         if missing_outputs:
-            self.generate_output_dictionary(t1, t2, engine, missing_outputs)
+            self.generate_output_dictionary(t1, t2, engine, missing_outputs, default_table)
             self.output_dict = self.format_output_dictionary(self.query_dict)
 
 
