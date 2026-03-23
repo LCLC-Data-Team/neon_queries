@@ -2701,6 +2701,98 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         df = self.query_run(query)
         return(df)
     
+    def legal_bonanza_2(self, case_stage='timeframe', ranking_method=None, if_rearrest=None, grouping_cols = []):
+        ## active cases: and case_end is null and case_stage not like 'Case Closed'
+        ## all timeframe cases: and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})
+        ## all started cases: and case_start between {self.q_t1} and {self.q_t2})
+        ## concluded cases: and case_outcome_date between {self.q_t1} and {self.q_t2})
+        ## rearrest: and days_until_rearrest >0 
+        ### reason to have conclusions outside of timeframe? i sorta think so
+
+        ## if no ranking method, count mycase_id, if ranking emthod, count participant_id
+        where_dict = {
+            'timeframe': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})',
+            'active': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t2})) or case_outcome_date > {self.q_t2})',
+            'closed': f'and case_outcome_date between {self.q_t1} and {self.q_t2}',
+            'closed_ever':f'and case_outcome_date <= {self.q_t2}',
+            'started': f'and case_start between {self.q_t1} and {self.q_t2}',
+            'rearrested': 'and days_until_rearrest > 0',
+            'original_case': 'and days_until_rearrest = 0'
+        }
+        where_statement = ''
+        if case_stage:
+            where_statement = where_statement + ' ' + where_dict.get(case_stage, '')
+        
+        if if_rearrest is True:
+            where_statement = where_statement + ' ' + where_dict.get('rearrested', '')  
+        if if_rearrest is False:
+            where_statement = where_statement + ' ' + where_dict.get('original_case', '')
+        
+        rank_where = ''
+        count_col = 'mycase_id'
+        if ranking_method:
+            if ranking_method in ['felony','outcome']:
+                rank_where = f'where {ranking_method}_ranking = 1'
+                count_col = 'participant_id'
+            else:
+                return('set ranking method to either felony or outcome')
+            
+        #handle grouping cols
+        existing_groups = {'case_outcomes': ['case_outcome', 'sentence', 'probation_type'],
+                           }
+        if isinstance(grouping_cols, str):
+            if grouping_cols in existing_groups:
+                grouping_cols = existing_groups[grouping_cols]
+            else:
+                grouping_cols = list(grouping_cols.split(", "))
+        
+        grouping_cols=', '.join(str(col) for col in grouping_cols)
+        final_table_select = '*'
+        final_table_group_by = ''
+        if grouping_cols:
+            if grouping_cols !='total':
+                final_table_select = f'{grouping_cols}, count(distinct {count_col}) count'
+                final_table_group_by = f'group by {grouping_cols}'
+            if 'outcome' in grouping_cols:
+                rank_where = rank_where + f'{'where' if len(rank_where) == 0 else ' and'} case_outcome is not null'
+            if grouping_cols =='total':
+                final_table_select = f'count(distinct participant_id) total_clients, count(distinct mycase_id) total_cases'
+
+        query = f'''
+        with stage_at_t2 as (select distinct mycase_id, stage case_stage_t2 from mycase.case_stages
+        join
+            (select mycase_id, max(stage_start) stage_start from mycase.case_stages
+            where stage_start <= {self.q_t2}
+            group by mycase_id) 
+        m using(mycase_id, stage_start)),
+
+        ranked as (select distinct participant_id, mycase_id, case_start, case_end, attorney, 
+        case_stage, 
+        case when case_stage_t2 is null then 'Not Specified'
+        when case_stage_t2 = 'Case Closed (not covered by one of the above options)' then 'Case Closed'
+        when case_outcome_date <= '2025-12-31' and case_stage_t2 in('Pre-Indictment', 'Discovery/Trial','Sentencing') then 'Case Closed'
+        else case_stage_t2 end case_stage_t2, case_type, violent, juvenile_adult,
+        class_prior, class_after, case_outcome_date, case_outcome, 
+        sentence, probation_type, if_incarcerated, expungable_sealable, days_until_rearrest, fel_reduction,
+        ROW_NUMBER() OVER (partition by participant_id,stint_start ORDER BY felony_rank asc, outcome_rank desc, sentence_rank desc) as felony_ranking,
+        ROW_NUMBER() OVER (partition by participant_id,stint_start ORDER BY outcome_rank desc, sentence_rank desc) as outcome_ranking
+        from neon.leg_mc
+        join 
+            (select distinct participant_id, stint_start from  stints.stints_plus_stint_count
+            join (select distinct participant_id, program_start, program_end from {self.table}) n using(participant_id)
+            where (program_start <= stint_end OR stint_end IS NULL) AND (program_end >= stint_start OR program_end IS NULL)
+        ) n using(participant_id, stint_start)
+        left join stage_at_t2 using(mycase_id)
+        where case_start <= {self.q_t2} {where_statement})
+        
+        select {final_table_select}
+        from ranked {rank_where}
+        {final_table_group_by}
+        '''
+        df = self.query_run(query)
+        return df
+
+
     @clipboard_decorator
     def legal_tally(self, distinct_clients = False):
         '''
@@ -2775,6 +2867,103 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         '''
         df = self.query_run(query)
         return(df)
+    
+    def legal_rearrested_details(self, timeframe = True, ranking_method = None, grouping_cols=None):
+        '''
+        A more extensive look at rearrest information.
+
+        Parameters:
+            timeframe (Bool): only look at rearrests in timeframe. Defaults to True.
+            ranking_method: 'earliest','latest', or 'felony' for highest felony
+            grouping_cols: list containing any of case_type, charge_level, violent, time_before_rearrest, time_since_rearrest
+        
+        Examples:
+            Get the number of new cases picked up by clients::
+
+                e.legal_rearrested(client_level=False)
+            
+            Get the number of clients rearrested::
+
+                e.legal_rearrested()
+        
+        Note:
+            Legal - Recidivism Details
+        '''
+        where_ranking = f'{ranking_method}_ranking = 1' if ranking_method else None
+        where_timeframe = 'timeframe = 1' if timeframe else None
+        
+        where_statement = "where " + " and ".join(filter(None, [where_ranking, where_timeframe])) if where_ranking or where_timeframe else ''
+        
+        select_cols = ', '.join(grouping_cols) if grouping_cols else None
+        order_by_cols = ', '.join([f"case when {item} = 'Missing' then 2 when {item} = 'Other' then 1 else 0 end asc" for item in grouping_cols]) if grouping_cols else None
+
+        query = f'''
+with base as (
+        select * from neon.legal_mycase
+        join (select distinct participant_id from {self.table}) n using(participant_id)
+        join (select participant_id, max(stint_end) latest_stint_end, max(stint_start) latest_stint_start from stints.stints_plus_stint_count
+              group by participant_id) s using(participant_id)        
+        where (mycase_name not like "%traffic%" and mycase_id != 31580789 and case_start <= {self.q_t2})
+        and (latest_stint_end is null or case_start >= latest_stint_end)
+        and (case_outcome_date is null or case_outcome_date > latest_stint_start) and (case_end is null or case_end > latest_stint_start)),
+      
+rearrests as 
+  (select b.*, 
+          case when case_start between {self.q_t1} and {self.q_t2} then True else False end timeframe,
+          timestampdiff(day, case_start, CURDATE()) days_since_start,
+          timestampdiff(day, latest_stint_start, case_start) days_before_rearrest,
+          coalesce(felony, 'Missing') charge_level, coalesce(ranking, 10) felony_ranking
+      from base b
+      join 
+        (select participant_id, min(case_start) as earliest_start
+        from base
+        group by participant_id) e using(participant_id)
+    left join misc.highest_felony h on b.class_prior_to_trial_plea = h.felony
+    where case_start > earliest_start)
+,
+  
+rearrest_rank as (select participant_id, case_start, timeframe,
+  coalesce(case_type, 'Missing') case_type, charge_level, coalesce(violent, 'Missing') violent, 
+  case 
+    when days_before_rearrest <= 31 then 'First Month'
+    when days_before_rearrest between 32 and 93 then 'First Quarter'
+    when days_before_rearrest between 94 and 183 then 'First Six Months'
+    when days_before_rearrest between 184 and 366 then 'First Year'
+  else 'Year+' end time_before_rearrest,
+  case 
+    when case_start >= CURDATE() - INTERVAL 7 DAY then 'Week'
+    when case_start >= CURDATE() - INTERVAL 30 DAY then 'Month'
+    when case_start >= CURDATE() - INTERVAL 90 DAY then 'Quarter'
+    when case_start >= CURDATE() - INTERVAL 365 DAY then 'Year'
+    else 'Year+' end time_since_rearrest, 
+  ROW_NUMBER() OVER (partition by participant_id ORDER BY felony_ranking asc) felony_ranking,
+  ROW_NUMBER() OVER (partition by participant_id ORDER BY timeframe desc, days_since_start asc, felony_ranking asc) latest_ranking,
+  ROW_NUMBER() OVER (partition by participant_id ORDER BY timeframe desc, days_since_start desc, felony_ranking asc) earliest_ranking
+  from rearrests)
+  
+
+select {(select_cols + ', count(participant_id) count') if select_cols else '*'} from rearrest_rank
+{where_statement}
+{('group by ' + select_cols) if select_cols else ''}
+{('order by ' + order_by_cols if order_by_cols else '')}
+'''
+        df = self.query_run(query)
+        
+        if grouping_cols:
+            if len(grouping_cols) > 1:
+                df = df.pivot_table(index=grouping_cols[:-1], columns=grouping_cols[-1],values='count',fill_value=0)
+                df['Total'] = df.sum(axis=1, numeric_only=True)
+                #df.loc["Total"] = df.sum(axis=0, numeric_only=True)
+                df.loc['Total', :] = df.sum(axis=0, numeric_only=True).values
+                #df = df.reset_index()
+            else:
+                df.loc["Total"] = df.sum(axis=0, numeric_only=True)
+                df.loc['Total',grouping_cols[0]] = 'Total'
+                df = df.reset_index(drop=True)
+            
+        
+        return(df)
+
 
     @clipboard_decorator
     def legal_rjcc(self, client_level = True,timeframe = True):
@@ -3364,6 +3553,81 @@ from base
         '''
         df = self.query_run(query)
         return df
+    
+    def outreach_elig_factors(self, outreach_only=True, new_clients=False):
+        '''
+        Counts the number of clients with outreach eligibility forms, and the risk factor areas 
+        (violent/aggressive behavior, victim of violence, active street, and justice system involvement)
+        each client responded yes to
+
+        Parameters: 
+            outreach_only (Bool): Only include clients currently in outreach. Defaults to True
+            new_clients (Bool): Only include new clients. Defaults to False
+
+        Examples:
+            Get the number of new outreach clients with eligibility screenings and their dimensions::
+
+                e.outreach_elig_tally(new_clients=True)
+            
+            Get the number of all clients with eligibility screenings//number of "yes"es for each question::
+
+                e.outreach_elig_tally(outreach_only=False)
+        
+        Note:
+            Outreach - Eligibility Form Responses
+        '''
+        
+        where_statement = f'''where service_type = 'outreach''' if outreach_only else ''
+        where_statement = f'''where program_start between {self.q_t1} and {self.q_t2} and program_type regexp "chd.*|community navigation.*|violence.*"''' if new_clients else ''
+
+
+        if new_clients and outreach_only: 
+            where_statement = f'''where service_type = 'outreach' and service_start between {self.q_t1} and {self.q_t2}'''
+
+        query = f'''
+        with base as (select participant_id, assessment_date,
+    (case when asi='yes' or fasi='yes' then 1 else 0 end) street_involvement,
+    case when vab='yes' then 1 else 0 end violent_behavior,
+    (case when rvv='yes' or orvv='yes' then 1 else 0 end) victim_violence,
+    case when jsi='yes' or (staff_start_date is null or staff_start_date <= assessment_date)then 1 else 0 end as justice_involved,
+    (case when asi='yes' then 1 else 0 end +
+    case when fasi='yes' then 1 else 0 end +
+    case when vab='yes' then 1 else 0 end +
+    case when rvv='yes' then 1 else 0 end +
+    case when orvv='yes' then 1 else 0 end +
+    case when jsi='yes' or (staff_start_date is null or staff_start_date <= assessment_date)then 1 else 0 end
+    ) as risk_factors,
+    (case when violent_felony_conviction='yes' then 1 else 0 end +
+    case when known_potential_safety_concerns='yes' then 1 else 0 end +
+    case when experienced_trauma='yes' then 1 else 0 end ) as other_factors
+    from assess.outreach_eligibility
+    join(select distinct participant_id from {self.table} {where_statement}) s using(participant_id)
+    left join(select participant_id, min(staff_start_date) staff_start_date from neon.assigned_staff
+    where staff_type = 'assigned attorney' group by participant_id) l using(participant_id)),
+
+    all_base as(select *,street_involvement+violent_behavior+victim_violence+justice_involved risk_dimensions,
+    risk_factors+other_factors total_factors
+    from base
+    join (select participant_id, max(assessment_date) assessment_date from base group by participant_id) b using(participant_id, assessment_date))
+
+    select *, 
+    concat(format(100*total_clients/(select count(distinct participant_id) pct_clients from all_base b),1),"%") pct_clients
+    from
+    (select 'Street Involvement' Dimension, sum(street_involvement) total_clients from all_base
+    union all
+    select 'Violent Behavior', sum(violent_behavior) from all_base
+    union all
+    select 'Victim of Violence', sum(victim_violence) from all_base
+    union all
+    select 'Justice Involvement', sum(justice_involved) from all_base
+    union all
+    select concat('Total Factors: ', risk_dimensions), count(distinct participant_id) from all_base
+    group by risk_dimensions
+    union all
+    select 'Total Assessed', count(distinct participant_id) from all_base) bb'''
+        df = self.query_run(query)
+        return df
+
     
     @clipboard_decorator
     def mediation_info(self,timeframe=True):
