@@ -2715,7 +2715,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         
         Hints:
             case_stage options: timeframe, active (ongoing at t2), started, closed, closed_ever (closed outside of timeframe)
-            grouping_cols options: case_type, violent, juvenile_adult, class_prior, class_after_trial_plea, case_outcome, sentence, probation_type
+            grouping_cols options: total (returns complete df), case_type, violent, juvenile_adult, class_prior, class_after_trial_plea, case_outcome, sentence, probation_type
         '''
         ## active cases: and case_end is null and case_stage not like 'Case Closed'
         ## all timeframe cases: and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})
