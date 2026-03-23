@@ -2702,6 +2702,21 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         return(df)
     
     def legal_bonanza_2(self, case_stage='timeframe', ranking_method=None, if_rearrest=None, grouping_cols = []):
+        '''
+        Revamped legal_bonanza
+
+
+        Parameters:
+            timeframe (Bool): Whether to look true only looks at cases active in time period
+            case_stage (optional): 'started' only looks at cases started in time period, 'ended' looks at cases ended
+            ranking_method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
+            if_rearrest(optional, Bool): None looks at all cases. True looks at rearrests, False looks at original charges. Defaults to None
+            grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type. "Total" gives total number of cases.
+        
+        Hints:
+            case_stage options: timeframe, active (ongoing at t2), started, closed, closed_ever (closed outside of timeframe)
+            grouping_cols options: case_type, violent, juvenile_adult, class_prior, class_after_trial_plea, case_outcome, sentence, probation_type
+        '''
         ## active cases: and case_end is null and case_stage not like 'Case Closed'
         ## all timeframe cases: and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})
         ## all started cases: and case_start between {self.q_t1} and {self.q_t2})
