@@ -533,6 +533,7 @@ class ReportFromXlsxTemplate:
                     'engine': engine,'print_SQL': False,'clipboard': False,'mycase': True,
                     'default_table': default_table}
                 standard_inputs = standard_inputs | obj_parameters
+                print(standard_inputs)
                 funcz = grant_funcs
 
                 if grant_name == 'all':

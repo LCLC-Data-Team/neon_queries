@@ -130,6 +130,7 @@ class Tables:
         '''
         if self.table != 'stints.active':
             stints_statements = f'''
+            drop table if exists {self.table};
             create table {self.table} as(
             select first_name, last_name, participant_id, program_type, program_start, program_end, 
             service_type, service_start, service_end, 
