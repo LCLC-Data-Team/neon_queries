@@ -53,6 +53,7 @@ class Tables:
 
         self.print_SQL = print_SQL
         self.clipboard = clipboard
+        self.cloud_run = cloud_run
         
         self.con = self.engine.connect().execution_options(autocommit=True)
         self.stints_cloud_run() if cloud_run else self.stints_run()
