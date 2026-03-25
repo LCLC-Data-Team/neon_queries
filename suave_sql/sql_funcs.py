@@ -2920,13 +2920,8 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         where_timeframe = 'timeframe = 1' if timeframe else None
         
         where_statement = "where " + " and ".join(filter(None, [where_ranking, where_timeframe])) if where_ranking or where_timeframe else ''
-        select_cols = None
-        if grouping_cols:
-            if isinstance(grouping_cols, str):
-                select_cols = grouping_cols
-            else:
-                select_cols = ', '.join(grouping_cols)
-
+        grouping_cols = [grouping_cols] if isinstance(grouping_cols, str) else grouping_cols
+        select_cols = ', '.join(grouping_cols) if grouping_cols else None
         order_by_cols = ', '.join([f"case when {item} = 'Missing' then 2 when {item} = 'Other' then 1 else 0 end asc" for item in grouping_cols]) if grouping_cols else None
 
         query = f'''
