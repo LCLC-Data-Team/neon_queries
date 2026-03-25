@@ -992,6 +992,8 @@ where intake_date is null and program_end is null and program_type not regexp "d
         '''
         Returns all clients missing a zipcode or community from their address
 
+        Note:
+            Audit - Clients Missing Address Info
         '''
         query = f'''
         with base as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers from {self.table}),
@@ -1021,6 +1023,9 @@ where intake_date is null and program_end is null and program_type not regexp "d
     def missing_edu_employ(self):
         '''
         Checks which clients are missing education/employment info from linkages and intake
+
+        Note:
+            Audits - Missing Education/Employment
         '''
         def set_query(new_client_col = True):
             query= f'''
@@ -1990,7 +1995,12 @@ class Queries(Audits):
         return(df)
     
     def dem_edu_employ_tracker(self):
-        '''Makes a big, yucky table of education/employment data from linkages + intake'''
+        '''
+        Makes a big, yucky table of education/employment data from linkages + intake
+        
+        Note:
+            Demographics - Client Education/Employment Table
+        '''
         def set_query(new_client_col = True):
             query = f'''
             with idhs as (select * from {self.table}),
@@ -2716,6 +2726,8 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         Hints:
             case_stage options: timeframe, active (ongoing at t2), started, closed, closed_ever (closed outside of timeframe)
             grouping_cols options: total (returns complete df), case_type, violent, juvenile_adult, class_prior, class_after_trial_plea, case_outcome, sentence, probation_type
+        Note:
+            Legal - Flexible Master Function (v2)
         '''
         ## active cases: and case_end is null and case_stage not like 'Case Closed'
         ## all timeframe cases: and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})
@@ -2910,6 +2922,8 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         where_statement = "where " + " and ".join(filter(None, [where_ranking, where_timeframe])) if where_ranking or where_timeframe else ''
         
         select_cols = ', '.join(grouping_cols) if grouping_cols else None
+        if isinstance(grouping_cols, str):
+            select_cols = grouping_cols
         order_by_cols = ', '.join([f"case when {item} = 'Missing' then 2 when {item} = 'Other' then 1 else 0 end asc" for item in grouping_cols]) if grouping_cols else None
 
         query = f'''
@@ -3732,7 +3746,7 @@ from base
         Parameters:
             session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
         
-                Note:
+        Note:
             Case Sessions - Average Time Spent in Sessions
         '''
         session_type = f"'{session_type}'"
