@@ -522,7 +522,7 @@ class ReportFromXlsxTemplate:
         print('dictionary reformatted as .formatted_report_dict')
         return('dictionary reformatted as .formatted_report_dict')
 
-    def generate_output_dictionary(self, t1, t2,engine, function_dict = None, default_table = None):
+    def generate_output_dictionary(self, t1, t2,engine, function_dict = None, default_table = None, obj_parameters = {}):
         '''
         when function_dict = None, self.formatted_report_dict is used
         '''
@@ -532,6 +532,7 @@ class ReportFromXlsxTemplate:
                 standard_inputs = {
                     'engine': engine,'print_SQL': False,'clipboard': False,'mycase': True,
                     'default_table': default_table}
+                standard_inputs = standard_inputs | obj_parameters
                 funcz = grant_funcs
 
                 if grant_name == 'all':
@@ -672,10 +673,10 @@ class ReportFromXlsxTemplate:
         return needed_outputs
 
 
-    def add_missing_outputs(self, flattened_key, engine, t1, t2, default_table=None):
+    def add_missing_outputs(self, flattened_key, engine, t1, t2, default_table=None, obj_parameters={}):
         missing_outputs = self.find_missing_outputs(flattened_key)
         if missing_outputs:
-            self.generate_output_dictionary(t1, t2, engine, missing_outputs, default_table)
+            self.generate_output_dictionary(t1, t2, engine, missing_outputs, default_table,obj_parameters=obj_parameters)
             self.output_dict = self.format_output_dictionary(self.query_dict)
 
 
