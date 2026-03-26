@@ -4775,19 +4775,21 @@ left join partners using(linkage_type)
         from complete_table
         group by participant_id),
 
-        big_table as (select participant_id, name, complete_units, partial_units, missing_units,
+        big_table as (select participant_id, name, service_end,complete_units, partial_units, missing_units,
         ifnull(pct_complete, 0) pct_complete, 
         case 
                 when pct_complete between .01 and .49 then "0%-50%" 
                 when pct_complete between .5 and .99 then "50%-99%" 
                 when pct_complete = 1 then "100%" 
                 else "0%" end completion_group from unit_table
-        right join (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name, "1, 2, 3, 4, 5, 6" as missing_units
-        from {self.table}) r using(participant_id))
+        right join (select distinct participant_id, service_end, concat(first_name, " ",left(last_name,1), ".") name, "1, 2, 3, 4, 5, 6" as missing_units
+        from {self.table} where service_type = 'civic engagement') r using(participant_id))
         '''
         
         if summary_table:
-            addendum = 'select completion_group, count(distinct participant_id) count from big_table group by completion_group'
+            addendum = 'select completion_group, count(distinct participant_id) count, ' \
+            'count(distinct case when service_end is not null then participant_id else null end) unenrolled_count' \
+            ' from big_table group by completion_group'
             query = query + ' ' + addendum
             df = self.query_run(query)
             return df

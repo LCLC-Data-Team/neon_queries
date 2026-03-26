@@ -406,10 +406,10 @@ class ReportFromXlsxTemplate:
             self.base_df = temp_df
 
     def format_df(self, df):
-        df['grant_name'] = df['grant_name'].fillna('all')
-        df['where_used'] = df['where_used'].str.split(', ')
-        df['row_id'] = df.groupby('grant_name').cumcount() + 1
-        df['row_id'] = df['grant_name'].map({v: k for k, lst in self.alias_dict.items() for v in lst}) + "_" + df['row_id'].astype(str)
+        df.loc[:,'grant_name'] = df['grant_name'].fillna('all')
+        df.loc[:,'where_used'] = df['where_used'].str.split(', ')
+        df.loc[:,'row_id'] = df.groupby('grant_name').cumcount() + 1
+        df.loc[:,'row_id'] = df['grant_name'].map({v: k for k, lst in self.alias_dict.items() for v in lst}) + "_" + df['row_id'].astype(str)
         return df
 
     def parse_df(self, df):
