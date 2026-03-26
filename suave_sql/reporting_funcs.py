@@ -522,7 +522,7 @@ class ReportFromXlsxTemplate:
         print('dictionary reformatted as .formatted_report_dict')
         return('dictionary reformatted as .formatted_report_dict')
 
-    def generate_output_dictionary(self, t1, t2,engine, function_dict = None, default_table = None, obj_parameters = {}):
+    def generate_output_dictionary(self, t1=None, t2=None,engine=None, function_dict = None, default_table = None, obj_parameters = {}, existing_obj = None):
         '''
         when function_dict = None, self.formatted_report_dict is used
         '''
@@ -546,6 +546,18 @@ class ReportFromXlsxTemplate:
                 output_dict[grant_name] = r.report_outputs
             return output_dict
         
+        def actually_run_w_obj(outer_dict, obj):
+            output_dict = {}
+            for grant_name, grant_funcs in outer_dict.items():
+                if isinstance(next(iter(grant_funcs.values())),dict):
+                    self.report_outputs = {}
+                    for sheet, queries in grant_funcs.items():
+                        obj.report_outputs[sheet] = obj.run_report(func_dict = queries)
+                else:
+                    obj.report_outputs = obj.run_report(func_dict=grant_funcs)
+                output_dict[grant_name] = obj.report_outputs
+            return output_dict
+        
         def add_outputs_to_query_dict(output_dict, full_query_dict):
             for full_grant_dict in output_dict.values():
                 for k, v in full_grant_dict.items():
@@ -554,11 +566,13 @@ class ReportFromXlsxTemplate:
                     else:
                         #print(v)
                         full_query_dict[k]['output'] = full_query_dict[k]['formatted_method'] if v is None or v.startswith('Error') else v
-        
-        if not function_dict:
-            function_dict = self.formatted_report_dict
-        default_table = "stints.neon" if not default_table else default_table
-        output_dict =  actually_run_report(function_dict, default_table)
+
+        function_dict = self.formatted_report_dict if not function_dict else function_dict
+        if not existing_obj:
+            default_table = "stints.neon" if not default_table else default_table
+            output_dict =  actually_run_report(function_dict, default_table)
+        else:
+            output_dict = actually_run_w_obj(function_dict, existing_obj)
         add_outputs_to_query_dict(output_dict, self.query_dict)
         return self.query_dict
     
@@ -674,10 +688,10 @@ class ReportFromXlsxTemplate:
         return needed_outputs
 
 
-    def add_missing_outputs(self, flattened_key, engine, t1, t2, default_table=None, obj_parameters={}):
+    def add_missing_outputs(self, flattened_key, engine=None, t1=None, t2=None, default_table=None, obj_parameters={}, existing_obj=None):
         missing_outputs = self.find_missing_outputs(flattened_key)
         if missing_outputs:
-            self.generate_output_dictionary(t1, t2, engine, missing_outputs, default_table,obj_parameters=obj_parameters)
+            self.generate_output_dictionary(t1, t2, engine, missing_outputs, default_table,obj_parameters=obj_parameters,existing_obj=existing_obj)
             self.output_dict = self.format_output_dictionary(self.query_dict)
 
 
