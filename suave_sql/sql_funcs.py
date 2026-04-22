@@ -2799,7 +2799,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         case_stage, 
         case when case_stage_t2 is null then 'Not Specified'
         when case_stage_t2 = 'Case Closed (not covered by one of the above options)' then 'Case Closed'
-        when case_outcome_date <= '2025-12-31' and case_stage_t2 in('Pre-Indictment', 'Discovery/Trial','Sentencing') then 'Case Closed'
+        when case_outcome_date <= {self.q_t2} and case_stage_t2 in('Pre-Indictment', 'Discovery/Trial','Sentencing') then 'Case Closed'
         else case_stage_t2 end case_stage_t2, case_type, violent, juvenile_adult,
         class_prior, class_after, case_outcome_date, case_outcome, 
         sentence, probation_type, if_incarcerated, expungable_sealable, days_until_rearrest, fel_reduction,
@@ -4780,7 +4780,7 @@ left join partners using(linkage_type)
         case 
                 when pct_complete between .01 and .49 then "0%-50%" 
                 when pct_complete between .5 and .99 then "50%-99%" 
-                when pct_complete = 1 then "100%" 
+                when pct_complete >= 1 then "100%" 
                 else "0%" end completion_group from unit_table
         right join (select distinct participant_id, service_end, concat(first_name, " ",left(last_name,1), ".") name, "1, 2, 3, 4, 5, 6" as missing_units
         from {self.table} where service_type = 'civic engagement') r using(participant_id))
