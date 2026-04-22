@@ -2797,14 +2797,33 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             group by mycase_id) 
         m using(mycase_id, stage_start)),
 
-        ranked as (select distinct participant_id, mycase_id, case_start, case_end, attorney, 
+        ranked as (select distinct participant_id, mycase_id, case_id, case_start, case_end, attorney, 
         case_stage, 
         case when case_stage_t2 is null then 'Not Specified'
         when case_stage_t2 = 'Case Closed (not covered by one of the above options)' then 'Case Closed'
         when case_outcome_date <= {self.q_t2} and case_stage_t2 in('Pre-Indictment', 'Discovery/Trial','Sentencing') then 'Case Closed'
         else case_stage_t2 end case_stage_t2, case_type, violent, juvenile_adult,
         class_prior, class_after, case_outcome_date, case_outcome, 
-        sentence, probation_type, if_incarcerated, expungable_sealable, days_until_rearrest, fel_reduction,
+        sentence, probation_type, 
+        case when sentence is null then case_outcome
+          else sentence end merged_sentence,
+        case when sentence is null then case_outcome
+          else concat(case_outcome,' - ', sentence) end merged_outcome_sentence,
+        case when sentence is null then case_outcome
+          when probation_type is not null then probation_type
+            else sentence end merged_prob,
+        case when sentence is null then case_outcome
+          when probation_type is not null then concat(case_outcome, " - ", probation_type)
+            else concat(case_outcome, " - ", sentence) end merged_outcome_prob,
+        if_incarcerated, expungable_sealable, days_until_rearrest, 
+        case 
+            when days_until_rearrest = 0 then ''
+            when days_until_rearrest between 0 and 31 then 'First Month'
+            when days_until_rearrest between 32 and 93 then 'First Quarter'
+            when days_until_rearrest between 94 and 183 then 'First Six Months'
+            when days_until_rearrest between 184 and 366 then 'First Year'
+          else 'Year+' end rearrest_timeframe,
+        fel_reduction,
         ROW_NUMBER() OVER (partition by participant_id,stint_start ORDER BY felony_rank asc, outcome_rank desc, sentence_rank desc) as felony_ranking,
         ROW_NUMBER() OVER (partition by participant_id,stint_start ORDER BY outcome_rank desc, sentence_rank desc) as outcome_ranking
         from neon.leg_mc
