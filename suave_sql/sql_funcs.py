@@ -2742,7 +2742,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
 
         ## if no ranking method, count mycase_id, if ranking emthod, count participant_id
         where_dict = {
-            'timeframe': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})',
+            'timeframe': f'and ((case_outcome_date is null and (case_end is null or case_end >= {self.q_t1})) or case_outcome_date >= {self.q_t1})',
             'active': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t2})) or case_outcome_date > {self.q_t2})',
             'closed':f'and (case_end between {self.q_t1} and {self.q_t2} or case_outcome_date between {self.q_t1} and {self.q_t2})',
             'concluded': f'and case_outcome_date between {self.q_t1} and {self.q_t2}',
