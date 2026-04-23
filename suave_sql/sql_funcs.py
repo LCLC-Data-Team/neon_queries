@@ -2722,13 +2722,13 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
 
         Parameters:
             timeframe (Bool): Whether to look true only looks at cases active in time period
-            case_stage (optional): 'started' only looks at cases started in time period, 'closed' looks at cases closed
+            case_stage (optional): 'started' only looks at cases started in time period, 'concluded' looks at cases with an outcome in the timeframe,'closed' looks at cases ended in MyCase,
             ranking_method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
             if_rearrest(optional, Bool): None looks at all cases. True looks at rearrests, False looks at original charges. Defaults to None
             grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type. "Total" gives total number of cases.
         
         Hints:
-            case_stage options: timeframe, active (ongoing at t2), started, closed, closed_ever (closed outside of timeframe)
+            case_stage options: timeframe, active (ongoing at t2), started, closed, concluded, concluded_ever (concluded outside of timeframe)
             grouping_cols options: total (returns complete df), case_type, violent, juvenile_adult, class_prior, class_after_trial_plea, case_outcome, sentence, probation_type
         Note:
             Legal - Flexible Master Function (v2)
@@ -2744,8 +2744,9 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         where_dict = {
             'timeframe': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})',
             'active': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t2})) or case_outcome_date > {self.q_t2})',
-            'closed': f'and case_outcome_date between {self.q_t1} and {self.q_t2}',
-            'closed_ever':f'and case_outcome_date <= {self.q_t2}',
+            'closed':f'and (case_end between {self.q_t1} and {self.q_t2} or case_outcome_date between {self.q_t1} and {self.q_t2})',
+            'concluded': f'and case_outcome_date between {self.q_t1} and {self.q_t2}',
+            'concluded_ever':f'and case_outcome_date <= {self.q_t2}',
             'started': f'and case_start between {self.q_t1} and {self.q_t2}',
             'rearrested': 'and days_until_rearrest > 0',
             'original_case': 'and days_until_rearrest = 0'
