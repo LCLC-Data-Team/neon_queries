@@ -2791,14 +2791,16 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
                 final_table_select = f'count(distinct participant_id) total_clients, count(distinct mycase_id) total_cases'
 
         query = f'''
-        with stage_at_t2 as (select distinct mycase_id, stage case_stage_t2 from mycase.case_stages
+        with stage_at_t2 as (select distinct mycase_id, stage_start t2_stage_start, stage case_stage_t2 from mycase.case_stages
         join
             (select mycase_id, max(stage_start) stage_start from mycase.case_stages
             where stage_start <= {self.q_t2}
             group by mycase_id) 
         m using(mycase_id, stage_start)),
 
-        ranked as (select distinct participant_id, mycase_id, case_id, case_start, case_end, attorney, 
+        ranked as (select distinct participant_id, mycase_id, case_id, case_start, 
+        case when case_stage_t2 = 'Case Closed (not covered by one of the above options)' and case_end is null then t2_stage_start else case_end end case_end,
+        case_end, attorney, 
         case_stage, 
         case when case_stage_t2 is null then 'Not Specified'
         when case_stage_t2 = 'Case Closed (not covered by one of the above options)' then 'Case Closed'
