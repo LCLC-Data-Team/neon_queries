@@ -2800,7 +2800,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
 
         ranked as (select distinct participant_id, mycase_id, case_id, case_start, 
         case when case_stage_t2 = 'Case Closed (not covered by one of the above options)' and case_end is null then t2_stage_start else case_end end case_end,
-        case_end, attorney, 
+        attorney, 
         case_stage, 
         case when case_stage_t2 is null then 'Not Specified'
         when case_stage_t2 = 'Case Closed (not covered by one of the above options)' then 'Case Closed'
