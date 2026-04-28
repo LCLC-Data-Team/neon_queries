@@ -3369,7 +3369,7 @@ group by participant_id),
 w_links as
 (select distinct participant_id from neon.linkages
 join part using(participant_id)
-where (linked_date > assessment_date or start_date > assessment_date) and
+where (linked_date >= assessment_date or start_date >= assessment_date) and
 (linkage_type like '%mental%' or internal_program like "therapy") and client_initiated = 'LCLC Staff')
 
 select 
