@@ -4890,3 +4890,769 @@ with sess as(select participant_id, focus_contact, contact_type, new_client, des
         
         df = self.query_run(query)
         return(df)
+
+class ServiceAudit(Queries):
+    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
+        '''
+        Run an audit on service engagement/completion between t1 and t2!
+
+        Individual services can be analyzed with methods: cm_enrolled, legal_enrolled, outreach_enrolled, and other_services_enrolled
+        Referral analysis (with a properly formatted jotform spreadsheet) can be done using analyze_referrals, and includes referral information in subsequent uses of create_big_service_table
+        Use create_big_service_table to run all services at once, and/or add_closure_info to include closure reasons. 
+        create_big_service_table also enables you to adjust the criteria for different enrollment statuses by including a parameter_dict with the format {'Service Name':{parameter_name:parameter_val}}
+        Finally, push_to_mysql pushes filtered service table to your participants SQL schema, with the table name [date_label]_filtered
+        
+        Example:
+            Basic workflow: self.create_big_service_table(), self.add_closure_info(), self.push_to_mysql()
+            Workflow with referrals: self.analyze_referrals(), self.create_big_service_table(), self.add_closure_info(), self.push_to_mysql()
+        '''
+        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
+        self.date_label = self.label_date_range()
+
+    def label_date_range(self):
+        """Get label for date range (YYYY, MM YYYY, CYQX YYYY, MM YY, or "Timeframe")"""
+        start = pd.Timestamp(self.t1).normalize()
+        end = pd.Timestamp(self.t2).normalize()
+
+        # --- Full Year ---
+        if start.to_period("Y") == end.to_period("Y") and \
+        start == start.to_period("Y").start_time.normalize() and \
+        end == end.to_period("Y").end_time.normalize():
+            return str(start.year)
+
+        # --- Calendar Quarter ---
+        if start.to_period("Q") == end.to_period("Q") and \
+        start == start.to_period("Q").start_time.normalize()  and \
+        end == end.to_period("Q").end_time.normalize() :
+            q = start.quarter
+            return f"CYQ{q} {start.year}"
+
+        # --- Full Month ---
+        if start.to_period("M") == end.to_period("M") and \
+        start == start.to_period("M").start_time.normalize()  and \
+        end == end.to_period("M").end_time.normalize() :
+            return start.strftime("%B %Y")
+
+        return "Timeframe"
+    
+    def get_every_service(self):
+        '''
+        Returns table of all services active in timeframe. If analyze_referrals has already been run, also includes the enrollment pathway for each service
+        '''
+        query = f'''
+        select distinct participant_id, program_type, program_id, program_start, program_end, service_type, service_id, service_start, coalesce(service_end, program_end) service_end, new_stint, closed_stint,
+  case when program_start between {self.q_t1} and {self.q_t2} then 'new' else 'continuing' end new_program,
+  case when program_end is null then 'ongoing'
+      when program_end between {self.q_t1} and {self.q_t2} then 'closed'
+      else 'ongoing' end closed_program,
+  case when service_start between {self.q_t1} and {self.q_t2} then 'new' else 'continuing' end new_service,
+  case when coalesce(service_end, program_end) is null then 'ongoing'
+      when coalesce(service_end, program_end) between {self.q_t1} and {self.q_t2} then 'closed'
+      else 'ongoing' end closed_service
+  from stints.neon
+  join 
+  (select participant_id, 
+        case when group_concat(distinct new_stint) = 'new' then 'new' 
+          when group_concat(distinct new_stint) = 'continuing' then 'continuing'
+          else 'reopened' end new_stint,
+        case when group_concat(distinct closed_stint) = 'closed' then 'closed' 
+          when group_concat(distinct closed_stint) = 'ongoing' then 'ongoing'
+          else 'reopened' end closed_stint
+      from
+      (select distinct participant_id, stint_start, stint_end, 
+        case when stint_start < {self.q_t1} then 'continuing' else 'new' end new_stint,
+        case when stint_end between {self.q_t1} and {self.q_t2} then 'closed' else 'ongoing' end closed_stint
+        from stints.stints_plus_stint_count
+        join
+      (select distinct participant_id, program_start, program_end from stints.neon 
+        where program_type regexp "diversion|community navigation|violence prevention|chd") s using(participant_id)
+      where (program_start between stint_start and stint_end) or (stint_end is null and program_start >= stint_start)) st
+      group by participant_id) st using(participant_id)
+      
+where program_type regexp "diversion|community navigation|violence prevention|chd"
+        '''
+        df = self.query_run(query)
+
+        if not hasattr(self, 'referral_df'):
+            return df
+        
+        # add referral pathway info
+        referrals = self.referral_df
+        every_service_referred = pd.merge(df,
+         referrals.dropna(subset='participant_id')[['participant_id','first_enrolled','2025_program']].rename(columns={f'{self.date_label}_program':'program_type'}),
+         on=['participant_id','program_type'],
+        how='left')
+
+        scan_mask = ~(every_service_referred['new_stint']=='continuing') & (every_service_referred['first_enrolled'].isnull()) & (every_service_referred['program_type']=='Community Navigation')
+        diversion_mask = ~(every_service_referred['new_stint']=='continuing') & (every_service_referred['first_enrolled'].isnull()) & (every_service_referred['program_type']=='Diversion')
+        vs_mask = ~(every_service_referred['new_stint']=='continuing') & \
+                            (every_service_referred['first_enrolled'].isnull()) & \
+                            (every_service_referred['program_type']=='Violence Prevention') & \
+                            (every_service_referred['service_type']=='Victim Services')
+        civic_mask = ~(every_service_referred['new_stint']=='continuing') & \
+                            (every_service_referred['first_enrolled'].isnull()) & \
+                            (every_service_referred['program_type']=='Violence Prevention') & \
+                            (every_service_referred['service_type']=='Civic Engagement')
+        jotform_mask = ~(every_service_referred['first_enrolled'].isnull())
+
+        choice_labels = ['SCaN Referral', 'Diversion Referral', 'Victim Services Referral','Civic Engagement Referral','Jotform Referral']
+
+        every_service_referred['referral_pathway'] = np.select([scan_mask, diversion_mask, vs_mask, civic_mask, jotform_mask],choice_labels, None)
+
+
+
+        every_service = pd.merge(df,
+                every_service_referred[['service_id','referral_pathway']], how='inner', on='service_id')
+
+            
+        return(every_service)
+    
+    def get_intake_closure_info(self):
+        '''
+        Returns a table of close reasons and the latest intake date within the service period 
+        '''
+
+        query = f'''
+select distinct service_id, case when intake_date between p.program_start and p.program_end or (p.program_end is null and intake_date >= p.program_start) then intake_date
+  else null end intake_date,
+  coalesce(service_close_reason, close_reason) service_close_reason, close_reason program_close_reason from neon.programs p
+  join
+(select program_id, service_id, close_reason service_close_reason from neon.services) s using(program_id)
+  left join (select participant_id, intake_date from neon.intake ) i using(participant_id)
+  join stints.neon using(service_id)
+where p.program_type regexp "diversion|community navigation|violence prevention|chd"      
+'''
+        df = self.query_run(query)
+        df['intake_date'] = np.where(df['intake_date'].notna(), True, False)
+        return(df)
+
+
+
+    def cm_enrolled(self, partial_session_threshold=5, full_session_threshold=10, declined_days_enrolled=31):
+        '''
+        Returns table of case management enrollment statuses
+        Parameters: 
+            partial_session_threshold: # of successful sessions to meet the criteria for partial service engagement. Defaults to 5
+            full_session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 10
+            declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 31
+        '''
+
+        # unoriginal theory: CM enrollment can be determined using two(ish) dimensions
+        # 1. unique days with a successful case session
+        # 2. unique days spent completing assessments (including ISPs)
+
+        # For every CM record, we should count the number of occurances at any point in time (between session start& end dates) and during 2025. 
+        # (these become columns session_total, session_25, activity_total, activity_25 in the final cm_services table)
+        # We can also throw in the length of time enrolled in the service, where ongoing services are given the t2 of the current date (this is to avoid classifying records that began late in the year as declined services). 
+
+        # Then, we classify service records according to the following criteria:
+        # (note: I created an "Aftercare" category to distinguish between clients with low CM involvement in 2025 but more extensive casework earlier on from those who never fully enrolled)
+        # 1. Enrolled: Any record that doesn't fall into the following four categories
+        # 2. Inactive in 2025: Service began after November 15th, no assessments or sessions before the new year but some since
+        # 2. Aftercare: 10+ total sessions but <10 in 2025 & 1+ assessment dates total but 0 in 2025
+        # 3. Non-Responsive to Services: Enrolled for 1+ months, under 6 case sessions total, 0 assessments ever conducted
+        # 4. Declined Services: Enrolled for less than a month & under 6 case sessions total
+
+        # Initial groupings can be found in the coded_service_status column
+
+
+        # To catch any irregularities, I also included a column of the corresponding service unenrollment reasons in the table. 
+        # Then, I created a column final_status, which looked for any rows with a coded status that didn't match an official non-responsive/declined reason, and updated their values accordingly
+        # (ie: I classified a service as in aftercare while case management said it was non-responsive -> final_status = non-responsive)
+
+
+        query = f'''
+    with part as (select distinct participant_id, service_id, service_start, 
+    coalesce(service_end, program_end) service_end from {self.table} where service_type = 'case management' and 
+        program_type regexp "diversion|community navigation|violence prevention|chd"),
+
+    isp as (select participant_id, service_id, count(distinct review_date) isp_total,
+    count(distinct case when review_date between {self.q_t1} and {self.q_t2} then review_date else null end) isp_25
+    from
+    (select participant_id, goal_id, goal_start review_date from neon.isp_goals
+        union all
+    select participant_id, goal_id, review_date from neon.isp_updates) i
+    join  part using(participant_id)
+    where ((service_end is null and review_date >= service_start) or review_date between service_start and coalesce(service_end, current_date())) 
+    group by participant_id, service_id),
+
+    assess as (select participant_id, service_id, 
+    count(distinct assessment_date) assess_total,
+    count(distinct case when assessment_date between {self.q_t1} and {self.q_t2} then assessment_date else null end) assess_25
+    from
+    (select * from assess.cm_long
+    join part using(participant_id)
+    where ((service_end is null and assessment_date >= service_start) or assessment_date between service_start and coalesce(service_end, current_date())) ) a
+    group by participant_id, service_id),
+
+
+    sessions as (select participant_id, service_id, count(distinct session_date) session_total,
+    count(distinct case when session_date between {self.q_t1} and {self.q_t2} then session_date else null end) session_25
+    from neon.case_sessions
+    join part using(participant_id)
+    where contact_type = 'Case Management' and successful_contact = 'Yes' and
+    ((service_end is null and session_date >= service_start) or session_date between service_start and coalesce(service_end, current_date())) 
+    group by participant_id, service_id),
+
+    big_table as 
+    (select distinct participant_id, service_id, service_start, service_end, timestampdiff(day, service_start, coalesce(service_end, current_date())) days_enrolled,
+    coalesce(session_total, 0) session_total,
+    coalesce(session_25, 0) session_25,
+    (coalesce(assess_total,0) + coalesce(isp_total,0)) activity_total,
+    (coalesce(assess_25,0) + coalesce(isp_25,0)) activity_25
+    from part
+    left join assess using(participant_id, service_id)
+    left join isp using(participant_id, service_id)
+    left join sessions using(participant_id, service_id))
+
+    select *, 
+    case when close_reason = 'Non-Responsive to Services' and coded_service_status in ('Enrolled','Aftercare') then coded_service_status
+    when close_reason not in ('Successfully Completed Program', 'Moved','Other') and coded_service_status != close_reason then close_reason
+    else coded_service_status end final_status
+    from
+    (select *,
+    case when days_enrolled <= {declined_days_enrolled} and session_total <= {partial_session_threshold} then 'Declined Services'
+    when service_start > DATE_SUB({self.q_t2}, INTERVAL 45 DAY) and activity_total > 0 and activity_25 = 0 and session_25 = 0 then 'Inactive in {self.date_label}'
+    when service_start > DATE_SUB({self.q_t2}, INTERVAL 45 DAY) and (activity_25 > 0 or session_25 > 0) then 'Enrolled'
+    when session_total <= {partial_session_threshold} or activity_total = 0 then 'Non-Responsive to Services'
+    when session_total >= {full_session_threshold} and session_25 < {full_session_threshold} and activity_total > 0 and activity_25 = 0 then 'Aftercare'
+    else 'Enrolled' end coded_service_status
+    from big_table
+    join (select service_id, coalesce(close_reason, program_close_reason) close_reason, program_close_reason from neon.services
+    join (select program_id, close_reason program_close_reason from neon.programs) p using(program_id)) s using(service_id)) pp
+    '''
+
+        df = self.query_run(query)
+        return(df)
+
+    def outreach_enrolled(self, partial_session_threshold=5, full_session_threshold=10, declined_days_enrolled=31, incarceration_enrollment_pct=.5):
+        '''
+        Returns table of outreach enrollment statuses
+        Parameters: 
+            partial_session_threshold: # of successful sessions to meet the criteria for partial service engagement. Defaults to 5
+            full_session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 10
+            declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 31
+            incarceration_enrollment_pct: decimal of time client spent in custody to be considered "enrolled enough (incarcerated)". Defaults to .5
+        '''
+
+        # Outreach ends up being quite similar to case management, with a few tweaks along the way
+
+        # Dimensions retain CM's naming conventions, but become:
+        # 1. unique days with a successful case session --> unique days with a case session attempt (does a better job distinguishing clients in a service with generally lower response rates, though it's easy to reverse this)
+        # 2. unique days spent completing assessments (including ISPs) --> unique combinations of assessment type/completion dates (to distinguish between clients who only got an eligibility screening and those who got an eligibility screening + safety plan/assessment on the same day)
+
+        # I also added a column pct_incarcerated, which calculated the proportion of service time a client spent in custody. More on this later. 
+        # I added two new categories to my classification scheme:
+        # * Enrolled Enough -- records that I'd filter out of case management, but don't feel great about making a decision on for outreach
+        # * Enrolled Enough (Incarcerated) -- same situation as above, though the corresponding clients spent at least half of the time enrolled in custody
+
+        # My classification scheme became the following:
+        # 1. Enrolled: 2+ assessments in 2025 or 10+ sessions in 2025
+        # 2. Enrolled Enough: 5+ sessions in 2025
+        # 3. Enrolled Enough (Incarcerated): 50%+ of service length incarcerated, 5+ sessions in 2025 or at least one assessment completed
+        # 4. Inactive in 2025: clients who enrolled after 11/15 of last year and have had at least one session or assessment, but not in 2025
+        # 5. Aftercare: 5+ sessions overall, under 5 in 2025
+        # 6. Non-Responsive to Services: enrolled for 1+ months, fewer than 6 total sessions
+        # 7. Declined Services: less than a month spent enrolled
+
+        # Like case management, I also merged initial classifications with closure reasons to create a final_status column
+        
+        query = f'''
+        with part as (select distinct participant_id, service_id, service_start, 
+        coalesce(service_end, program_end) service_end from stints.neon where service_type = 'outreach' and program_type regexp "diversion|community navigation|violence prevention|chd"),
+
+        assess as (select participant_id, service_id, count(distinct assessment_date, assess_name) assess_total,
+        count(distinct case when assessment_date between {self.q_t1} and {self.q_t2} then assessment_date else null end) assess_25
+        from
+        (select distinct participant_id,'elig' as assess_name ,assessment_date from assess.outreach_eligibility
+        union all
+        select distinct participant_id, 'assess',assessment_date from assess.safety_assessment
+        union all
+        select distinct participant_id, 'plan',assessment_date from assess.safety_intervention) i
+        join  part using(participant_id)
+        where ((service_end is null and assessment_date >= service_start) or assessment_date between service_start and coalesce(service_end,current_date())) 
+        group by participant_id, service_id),
+
+        sessions as (select participant_id, service_id, count(distinct session_date) session_total,
+        count(distinct case when session_date between {self.q_t1} and {self.q_t2} then session_date else null end) session_25
+        from neon.case_sessions
+        join part using(participant_id)
+        where contact_type = 'Outreach' and 
+        ((service_end is null and session_date >= service_start) or session_date between service_start and coalesce(service_end, current_date())) 
+        group by participant_id, service_id),
+
+        incarcerated_proportion as (select service_id, status_length/service_length pct_incarcerated
+        from
+        (select participant_id, service_id, if_incarcerated, service_length, sum(status_length) status_length from
+        (select *,DATEDIFF(
+                    LEAST(status_end, service_end), 
+                    GREATEST(status_start, service_start)) status_length,
+        datediff(service_end,service_start) service_length
+        from
+        (select participant_id, service_id,
+        case when custody_status = 'in custody' then 'Incarcerated' else 'Not Incarcerated' end if_incarcerated,
+        status_start, coalesce(status_end, current_date()) status_end, service_start, coalesce(service_end, current_date()) service_end
+        from (select participant_id, custody_status, custody_status_date status_start, 
+        lead(custody_status_date) over (partition by participant_id order by custody_status_date) status_end
+        from neon.custody_status
+        where custody_status is not null) cust 
+        join part using(participant_id)) c
+        where service_start < status_end and service_end > status_start) cc
+        group by participant_id, service_id, if_incarcerated, service_length) ccc
+        where if_incarcerated = 'Incarcerated'),
+
+        big_table as 
+        (select distinct participant_id, service_id, service_start, service_end, timestampdiff(day, service_start, coalesce(service_end, current_date())) days_enrolled,
+        round(coalesce(pct_incarcerated, 0),2) pct_incarcerated,
+        close_reason,
+        coalesce(session_total, 0) session_total,
+        coalesce(session_25, 0) session_25,
+        coalesce(assess_total, 0) assess_total,
+        coalesce(assess_25, 0) assess_25
+        from part
+        left join assess using(participant_id, service_id)
+        left join sessions using(participant_id, service_id)
+        left join incarcerated_proportion using(service_id)
+        join (select service_id, coalesce(close_reason, program_close_reason) close_reason, program_close_reason from neon.services
+        join (select program_id, close_reason program_close_reason from neon.programs) p using(program_id) ) ps using(service_id))
+
+        select *,
+        case when close_reason not in ('Successfully Completed Program', 'Moved','Other') and coded_service_status != close_reason then close_reason
+        else coded_service_status end final_status
+        from (select *,
+        case when days_enrolled <= {declined_days_enrolled} then 'Declined Services'
+        when assess_25 > 1 or session_25 >= {full_session_threshold} then 'Enrolled'
+        when service_start > DATE_SUB({self.q_t2}, INTERVAL 45 DAY) and ((session_total > 0 and session_25 = 0) or assess_total > 0 and assess_25 = 0) then 'Inactive in {self.date_label}'
+        when pct_incarcerated > {incarceration_enrollment_pct} and (session_25 >= {partial_session_threshold} or assess_25 > 0) then 'Enrolled Enough (Incarcerated)'
+        when session_25 >= {partial_session_threshold} or assess_25 = 1 then 'Enrolled Enough'
+        when session_total > {partial_session_threshold} and session_25 < {partial_session_threshold} then 'Aftercare'
+        when session_total <= {partial_session_threshold} then 'Non-Responsive to Services'
+        else 'FIGURE IT OUT ELI'
+        end coded_service_status
+        from big_table) b
+        '''
+        df = self.query_run(query)
+        return(df)
+    
+    def legal_enrolled(self, partial_session_threshold=5, full_session_threshold=10, declined_days_enrolled=45, new_client_threshold=60):
+        '''
+        Returns table for legal enrollment statuses
+
+        Parameters:
+            partial_session_threshold: # of successful sessions to meet the criteria for partial service engagement. Defaults to 5
+            full_session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 10
+            declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 45
+            new_client_threshold: # of days client was enrolled at t2 to be considered "new" (and subject to lower session thresholds). defaults to 60
+        '''
+
+        # theory: legal enrollment can be determined w 3 factors:
+        # 1. total time entries
+        # 2. 2025 time entries
+        # 3. (the biggun) a sum of all case stages across a client's legal matters in 2025
+
+        # I gave case stages the following weights:
+        # Case Closed=0
+        # Any of: Expungement/Seal|Aftercare|MSNP|Probation|Supervised Release|Post-Conviction|Supervision (Adult)|Supervision (Juvi)=.25
+        # All other stages=1
+
+        # I summed all stages per client, then joined that DF it with a list of all case stages from any time period. Empty scores in the summing DF were filled according to the following rules:
+        # Client has at least one stage outside of 2025=-1
+        # Client has no stages recorded=-2
+
+        # ----
+        # Next, I wanted to assign labels to each row based off of their summed stage score
+        # Occasionally, there's a case that has time entries logged and no case stages recorded, [so assignment should be adjusted accordingly]
+
+        # 1. Enrolled: scores of 1+ OR scores of -1 & at least one '25 time entry OR Scores of -2 & '25 entries >= 10
+        # 2. Aftercare: Scores between 0-1 OR Scores of -2 & total entries > 10 & '25 entries < 10
+        # 3. Only Closed Cases in 2025: Scores of 0
+        # 4. Inactive in 2025: (Scores of -1 & no time entries in 2025) OR latest_entry < '2025-01-01' OR (sessions_2025_count =0 and latest_entry > '2025-12-31')
+        # 5. Declined Services: Scores of -2 & 0 time entries ever
+
+        query = f'''
+        with leg as (select participant_id, 'Legal' as service_type,max(entry_date) latest_entry, count(distinct entry_date) sessions_total,
+        count(distinct case when entry_date between {self.q_t1} and {self.q_t2} then entry_date else null end) sessions_2025
+        from
+        (select distinct participant_id, entry_date from mycase.time_entries
+        union all 
+        select participant_id, note_date from mycase.notes) u
+        group by participant_id),
+        full_stages as (select distinct *,
+        case when stage regexp 'Expungement/Seal|Aftercare|MSNP|Probation|Supervised Release|Post-Conviction|Supervision (Adult)|Supervision (Juvi)' then .25
+        when stage != 'Case Closed (not covered by one of the above options)' then 1
+        else 0 end stage_score
+        from mycase.case_stages
+        where stage_start < {self.q_t2} and (stage_end is null or stage_end > {self.q_t1})
+        ),
+        stage_score as (select participant_id, sum(stage_score) stage_score from full_stages
+        group by participant_id),
+
+        full_stage_score as 
+        (select participant_id, 
+        case when stage_score is null and had_stage is null then -2.00
+        when stage_score is null then -1.00
+        else stage_score end stage_score
+        from
+        (select distinct participant_id from stints.neon
+        where service_type='legal') n
+        left join stage_score using(participant_id)
+        left join 
+        (select distinct participant_id,'had_stage' from mycase.case_stages
+        join stints.neon using(participant_id)
+        where (coalesce(service_end, program_end) is null and service_start >= stage_start) or stage_start between service_start and coalesce(service_end, coalesce(program_end,current_date()))) mc using(participant_id)),
+
+        services as (select distinct participant_id, program_id, service_id, program_type, service_type, service_start, service_end, program_end, grant_type from stints.neon
+        join(select distinct service_id, group_concat(distinct grant_type) all_grant from stints.neon group by service_id) g using(service_id)
+        where service_type = 'legal' and (grant_type is not null or (grant_type is null and all_grant is null))),
+
+        big_table as (
+        select *
+        from services
+        left join leg using(participant_id, service_type)
+        where program_type regexp 'CHD|Violence.*|Community.*')
+
+        select *,
+        case when close_reason not in ('Successfully Completed Program', 'Moved','Other') and coded_service_status != close_reason and sessions_2025_count = 0 then close_reason
+        else coded_service_status end final_status from
+        (select *, case 
+        when (stage_score = -2 and sessions_total_count = 0 )or service_length <{declined_days_enrolled} then 'Declined Services'
+        when sessions_total_count > {partial_session_threshold} and sessions_2025_count < {full_session_threshold} and service_start > DATE_SUB({self.q_t2}, INTERVAL {new_client_threshold} DAY) then 'Enrolled'
+        when (stage_score =-1 and sessions_2025_count = 0) or latest_entry < {self.q_t1} or (sessions_2025_count =0 and latest_entry > {self.q_t2}) then 'Inactive in {self.date_label}'
+        when stage_score =0 then 'Only Closed Cases in {self.date_label}'
+        when stage_score between 0 and 1 then 'Aftercare'
+        else 'Enrolled' end coded_service_status
+        from
+        (select distinct participant_id, service_id, service_start, latest_entry, 
+        case when latest_entry < service_start then 0 else coalesce(sessions_total, 0) end sessions_total_count, 
+        case when latest_entry < service_start then 0 else coalesce(sessions_2025, 0) end sessions_2025_count,
+        timestampdiff(day, service_start, coalesce(service_end,coalesce(program_end,current_date()))) service_length, stage_score
+        from big_table
+        join full_stage_score using(participant_id)) l
+        ) ll 
+        join (select service_id, coalesce(close_reason, program_close_reason) close_reason, program_close_reason from neon.services
+        join (select program_id, close_reason program_close_reason from neon.programs) p using(program_id)) s using(service_id)
+        '''
+
+        df = self.query_run(query)
+        return(df)
+    
+    def other_services_enrolled(self, session_threshold=3, declined_days_enrolled=31):
+        '''
+        Returns table of enrollment statuses for Civic Engagement, Therapy, and Victim Services
+        Parameters: 
+            session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 3
+            declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 31
+        '''
+        # These fellas were relatively straightforward -- the only way to assess service health is by the number of sessions. 
+
+        # My classifications were as follows:
+        # 1. Enrolled: 1+ session in 2025
+        # 2. Inactive in 2025: 3+ sessions ever, 0 in 2025
+        # 3. Non-Responsive to Services: enrolled for over a month but with <3 sessions ever recorded
+        # 4. Declined Services: enrolled for under a month or 0 sessions ever recorded
+
+        query = f'''
+with civ as (select participant_id, 'Civic Engagement', max(attendance_date), count(distinct attendance_date) sessions_total, 
+  count(distinct case when attendance_date between {self.q_t1} and {self.q_t2} then attendance_date else null end) sessions_2025 
+  from neon.activities_attendance
+where activity_name like '%RYDS Curriculum%' and attendance like 'attended' and attendance_date < {self.q_t2}
+group by participant_id),
+
+  ther as(select participant_id, 'Therapy',max(session_date),count(distinct session_date) sessions_total,
+  count(distinct case when session_date between {self.q_t1} and {self.q_t2} then session_date else null end) sessions_2025
+  from neon.therapeutic_notes
+where session_date <{self.q_t2}
+  group by participant_id),
+
+  vs as (select participant_id, contact_type, max(session_date) latest_session, count(distinct session_date) sessions_total,
+  count(distinct case when session_date between {self.q_t1} and {self.q_t2} then session_date else null end) sessions_2025
+  from neon.victim_services
+where session_date < {self.q_t2}
+  group by participant_id, contact_type),
+
+
+all_notes as(
+select participant_id, contact_type as service_type, latest_session, sessions_total, sessions_2025 from vs 
+union all
+select * from ther
+union all
+select * from civ),
+
+services as (select distinct participant_id, program_id, service_id, program_type, service_type, service_start, coalesce(service_end, program_end) service_end, 
+  timestampdiff(day, service_start, coalesce(service_end, coalesce(program_end,current_date()))) days_enrolled,
+  grant_type from stints.neon
+join(select distinct service_id,group_concat(distinct grant_type) all_grant from stints.neon 
+  where service_type regexp "therapy|victim services|civic engagement" 
+  and program_type regexp "diversion|community navigation|violence prevention|chd"
+  group by service_id) g using(service_id)
+where grant_type is not null or (grant_type is null and all_grant is null)
+ ),
+
+big_table as (select participant_id, service_type, service_id, service_start, service_end, close_reason, days_enrolled,
+  latest_session, coalesce(sessions_total,0) sessions_total, coalesce(sessions_2025,0) sessions_2025
+  from services
+left join all_notes using(participant_id, service_type)
+join (select service_id, coalesce(close_reason, program_close_reason) close_reason, program_close_reason from neon.services
+join (select program_id, close_reason program_close_reason from neon.programs) p using(program_id)) s using(service_id))
+
+select *,
+  case when close_reason not in ('Successfully Completed Program', 'Moved','Other') and coded_service_status != close_reason and sessions_2025 = 0 then close_reason
+  else coded_service_status end final_status
+  from
+  (select *,
+  case when days_enrolled <={declined_days_enrolled} or sessions_total = 0 then 'Declined Services'
+  when sessions_total < {session_threshold} then 'Non-Responsive to Services'
+  when sessions_2025 = 0 then 'Inactive in {self.date_label}'
+  else 'Enrolled' end coded_service_status
+  from big_table) b
+'''
+        df = self.query_run(query)
+        return(df)
+
+    def create_big_service_table(self,
+        received_service_statuses = {
+        'Legal': ['Enrolled','Aftercare'],
+        'Case Management': ['Enrolled', 'Aftercare'],
+        'Outreach': ['Enrolled', 'Enrolled Enough', 'Enrolled Enough (Incarcerated)', 'Aftercare'],
+        'Civic Engagement': ['Enrolled'],
+        'Victim Services': ['Enrolled'],
+        'Therapy': ['Enrolled']},
+        parameter_dict = {}):
+
+        """idk add something for non-default options here"""
+       
+
+        funcs = {'legal_enrolled':self.legal_enrolled,
+                'cm_enrolled':self.cm_enrolled,
+                'outreach_enrolled':self.outreach_enrolled,
+                'other_services_enrolled':self.other_services_enrolled}
+        
+        ### get all funcs
+        results = {}
+        for func_name, func in funcs.items():
+            kwargs = parameter_dict.get(func_name, {})
+            results[func_name] = func(**kwargs)
+        
+        filtered_dfs = [df[['service_id','coded_service_status','final_status']] for df in results.values()]
+        all_statuses = pd.concat(filtered_dfs,ignore_index=True)
+
+        all_services = self.get_every_service()
+
+        all_service_statuses = pd.merge(all_services,all_statuses, on='service_id')
+
+        all_service_statuses['service_received'] = all_service_statuses.apply(
+            lambda x: x['final_status'] in received_service_statuses.get(x['service_type'], []), 
+            axis=1)
+        
+        self.all_service_statuses = all_service_statuses
+
+        return all_service_statuses
+
+    def add_closure_info(self):
+        if not hasattr(self, 'all_service_statuses'):
+            self.create_big_service_table()
+
+        close_reasons = self.get_intake_closure_info()
+        all_services = self.all_service_statuses.copy()
+
+        close_df = pd.merge(all_services, close_reasons, on='service_id', how='inner')
+
+        # assign a score to each final status, depending 
+        close_df['final_status_score'] =close_df['final_status'].map({'Enrolled':7,
+            'Aftercare':6,
+            f'Inactive in {self.date_label}':5,
+            'Enrolled Enough (Incarcerated)':4,
+            'Enrolled Enough':3,
+            'Non-Responsive to Services':2,
+            'Declined Services':1})
+
+
+        # next, let's group close_df by participant_id, and create columns for if the client received an intake, lists of program/service close reasons, and final_statuses. 
+        # Addiitonally, we'll throw in three columns based off of final_status_score:
+        # * the minimum score across closed services
+        # * the maximum score across closed services
+        # * the average score
+        # What do the close reasons mean?
+        # The non-other options we have are:
+        # 'Declined Services', 'Non-Responsive to Services', and 'Successfully Completed Program'
+
+        # These seem like thresholds more than anything
+        # * Declined services: once the client was admitted, they turned down LCLC
+        # * Non-Responsive to services: there may have been some successful service delivery (some case notes, assessments, court appearances), but things petered out prematurely
+        # * Successfully completed program: everything else
+
+        # The gap between non-responsive and successfully completed [is real big]. Since my brain was breaking anyway, I figured it would be worthwhile to offer more cohesive definitions for the first two categories, and break the third into three distinct categories. 
+        # * Declined Services: once the client was admitted, they turned down LCLC. If they didn't turn down LCLC immediately (or it wasn't documented), then they did not reach an engagement threshold for any service, and they did not have an intake complete.
+        #     - masking logic used: avg_service_score ==1 OR highest_status_score <=2 & had intake = False
+        # * Non-Responsive to Services: the client was never fully engaged in a service offered. they partially engaged in one or more services, and typically had an intake complete
+        #     - masking logic used: all clients who fell in-between Declined Services and Partially Completed
+        # * Partially Completed (name subject to change): A client was fully engaged in at least one service offered, or partially engaged in more services than not. (ex: A client who was in "aftercare" across the board)
+        #     - masking logic used: clients with a highest_status_score of 5+ AND and avg_status_score of 3+, who didn't fit into any of the other completed categories
+        # * Successfully Completed: As the original category intended. Clients had enough engagement to be deemed "successfully completed" universally at discharge
+        #     - masking logic: all original service_close_reasons were "successfully completed", but at least one final_status was not indicative of an engaged service
+        # * Fully Successfully Completed (name subject to change): All services were engaged with
+        #     - masking logic used: lowest_service_score >= 5
+        
+
+        closure_types = ['participant', 'program']
+
+        for closure in closure_types:
+            close_reasons = close_df[close_df['closed_program']=='closed'].groupby([f'{closure}_id'],as_index=False).agg(
+                had_intake = ('intake_date', lambda x:  list(x.unique())[0]),
+                program_close_reason =('program_close_reason',lambda x: sorted(list(x.unique()))),
+                service_close_reason =('service_close_reason',lambda x: sorted(list(x.unique()))),
+                final_statuses = ('final_status',lambda x: sorted(list(x.unique()))),
+                lowest_status_score = ('final_status_score','min'),
+                highest_status_score = ('final_status_score','max'),
+                avg_status_score = ('final_status_score','mean'))
+            
+            #closure masks
+            declined_mask = (close_reasons['avg_status_score']==1) | ((close_reasons['highest_status_score']<=2) & (close_reasons['had_intake']==False))
+            partial_mask = (close_reasons['highest_status_score']>=5) & (close_reasons['avg_status_score']>=3)
+            mostly_succ_mask = (close_reasons['service_close_reason'].str.len() == 1) & (close_reasons['service_close_reason'].str[0] == 'Successfully Completed Program')
+            full_succ_mask = close_reasons['lowest_status_score']>=5
+
+            choices = ['Fully Successfully Completed', 'Declined Services','Successfully Completed','Partially Completed']
+
+            close_reasons[f'{closure}_closure_type'] = np.select([full_succ_mask, declined_mask, mostly_succ_mask, partial_mask], choices, default='Non-Responsive to Services')
+            all_services = pd.merge(all_services, close_reasons[[f'{closure}_closure_type',f'{closure}_id']],how='left',on=f'{closure}_id')
+        
+        all_services = all_services.rename(columns ={'participant_closure_type':'closure_type'})
+        self.all_services_closures = all_services
+        return all_services
+
+    def analyze_referrals(self, referral_file_path, 
+        jotform_response_tab = 'Jotform_Responses',
+        referral_tracker_tab = 'referral_tracker',
+        matched_ids_tab = 'matched_ids',
+        idiosyncracies_tab = 'enrollment_idiosyncracies'):
+        '''
+        Processes a copy of the JotForm Referral spreadsheet (though it's a bit finnicky). If run before get_every_service, includes referral_pathway as a column in the eventual service df.
+        Also saves self.referrals_abr as an object attribute if you'd like to analyze that further
+
+        Parameters:
+            referral_file_path: file path of the referral spreadsheet
+            jotform_response tab: sheet name of the 'Jotform Responses' tab. defaults to Jotform_Responses
+            referral_tracker_tab: sheet name of the 'referral_tracker' tab. defaults to 'referral_tracker'
+            matched_ids_tab: sheet name of cleaned_ids tab, which is used to add any missing participant_ids and expects: first_name, last_name, Decision, and participant_id. defaults to 'matched_ids'
+            idiosyncracies_tab: sheet name of idiosyncracies tab, which 
+
+        '''
+        tracker = pd.read_excel(referral_file_path, sheet_name=referral_tracker_tab,header=1).dropna(subset="Client_name")
+        responses = pd.read_excel(referral_file_path, sheet_name=jotform_response_tab)
+
+        # merge the two sheets, rename a few columns, then filter out submissions that were processed outside of 2025.
+        # I kept the last 10 days of 2024 referrals in this range, but it didn't end up mattering
+
+        referral_merge = pd.merge(tracker, responses, how='right', right_on='Submission Edit URL', left_on='Submission Key').dropna(subset='Client_name')
+        referral_merge = referral_merge.rename(columns={'Full name of individual being referred - First Name':'first_name','Full name of individual being referred - Last Name':'last_name',"What is the individual's date of birth?":'birth_date'})
+        referral_merge['Decision date'] = pd.to_datetime(referral_merge['Decision date'])
+
+        decision_date_start = (pd.to_datetime(self.t1) - pd.Timedelta(days=10)).strftime('%Y-%m-%d')
+        referral_merge = referral_merge[(referral_merge['Decision date'] >= decision_date_start) & (referral_merge['Decision date'] <= self.t2)]
+
+        ## some basic info from neon
+        neon_df = self.query_run(f'''select distinct participant_id, first_name, last_name, birth_date from neon.basic_info join (select distinct(participant_id) from stints.neon) n using(participant_id)''')
+        neon_df['birth_date']=pd.to_datetime(neon_df['birth_date'])
+
+        try:
+            cleaned_ids = pd.read_excel(referral_file_path,sheet_name=matched_ids_tab)
+        except Exception as E:
+            print('you need match some IDs to referrals manually. copy-paste the table below into a new spreadsheet tab, poke around for any IDs that might be missing, then rerun this function')
+            return pd.merge(referral_merge[['first_name','last_name','birth_date','Decision']],neon_df, how='left',on=['first_name','last_name','birth_date']).to_clipboard()
+
+        referral_merge = pd.merge(referral_merge, cleaned_ids, how='left', on=['first_name','last_name','birth_date','Decision'])
+        
+        # get the earliest date a client enrolled in an LCLC service. I added a descriptive column in SQL to avoid datetime conversion
+        first_start = self.query_run(f'''select participant_id, stint_start, case when stint_start < {self.q_t1} then 'Reopened Client'
+            when stint_start between {self.q_t1} and {self.q_t2} then 'New Client'
+            else 'After {self.date_label}' end first_enrolled
+            from stints.stints_plus_stint_count where stint_num = 1''')
+        
+        referral_merge = pd.merge(referral_merge, first_start, how='left', on='participant_id')
+        referral_merge['first_enrolled'] = referral_merge['first_enrolled'].fillna('Never Enrolled')
+        
+        #exclude post 2025 clients from total
+        referral_merge = referral_merge[~referral_merge['first_enrolled'].isin(['After 2025'])]
+
+        ## oops there were a handful of duplicate submissions for clients, add a unique identifier column by combining DOB and last name
+        referral_merge['entry_id'] = referral_merge['last_name']+referral_merge['birth_date'].dt.strftime("%Y%m%d")
+        
+        try:
+            idio = pd.read_excel(referral_file_path,sheet_name=idiosyncracies_tab)
+        except Exception as E:
+            print(f'you need to add a table of idiosyncracies (participant_id, merge, {self.date_label}_program, comments). paste the returned table in a new tab, clean it up, then use the set idiosyncracies_tab to the new sheet name')
+            return pd.merge(referral_merge[['first_name','last_name','birth_date','Decision']],neon_df, how='left',on=['first_name','last_name','birth_date']).to_clipboard()
+
+
+
+        latest_program_start = self.query_run(f'''select participant_id, program_type, 
+        case when program_start < {self.q_t1} then 'Before {self.date_label}'
+        when program_start between {self.q_t1} and {self.q_t2} then 'During {self.date_label}'
+        else null end program_start
+        from
+        (select participant_id, program_type, max(program_start) program_start
+        from stints.neon
+        group by participant_id, program_type) s''')
+        try:
+            idio= pd.merge(idio, latest_program_start, how='left', left_on=['participant_id',f'{self.date_label}_program'], right_on=['participant_id','program_type'])
+        except KeyError as E:
+            return f"update the idiosyncracies tab's third column to be {self.date_label}_program"
+        
+        referrals_abr = referral_merge[['Submission Key', 'Client_name',
+       'Past client - Have we previously provided legal representation for the client?',
+       'Age - Is the client 24 or younger?',
+       'Neighborhood - What neighborhood does the client live in?',
+       'Class - What is the type of the most serious charge the client is facing?',
+       "RCT - Was the client randomized out from the RCT within 2 years of today's date?",
+       'Eligibility', 'Decision', 'Decision date', 'Decision reason','Submission ID', 'entry_id','participant_id', 'stint_start', 'first_enrolled']]
+       
+        # outer merge the cleaned idiosincracy table and the referral table to get info on all referrals + neon enrollments
+        referrals_abr = pd.merge(referrals_abr, idio[['participant_id','2025_program', 'program_start']], how='outer', on='participant_id')
+        
+        # fill N/A values for the neon-only clients
+        referrals_abr['Decision'] = referrals_abr['Decision'].fillna('Internal Referral')
+        referrals_abr['entry_id'] = referrals_abr['entry_id'].fillna(referrals_abr['participant_id'])
+        referrals_abr['first_enrolled'] = referrals_abr['first_enrolled'].fillna(referrals_abr['participant_id'].map(first_start.set_index('participant_id')['first_enrolled']))
+        referrals_abr.loc[referrals_abr['2025_program']=='Not Reenrolled', 'first_enrolled'] = 'Never Reenrolled'
+
+        self.referral_df = referrals_abr
+        return referrals_abr
+
+    def push_to_mysql(self):
+        from sqlalchemy.types import Integer, String, Date
+        if not hasattr(self, 'all_services_closures'):
+            self.add_closure_info()
+        
+        demographic_info = self.query_run('''select participant_id, gender, race, age, birth_date, language_primary from neon.basic_info b''')
+        proto_stint = pd.merge(self.all_services_closures, demographic_info, how='left',on='participant_id')
+        proto_stint = proto_stint[proto_stint['service_received']==True]
+        base_schema = {'participant_id':Integer(), 
+        'program_type':String(25), 
+        'program_id': Integer(), 
+        'program_start': Date(),
+        'program_end': Date(), 
+        'service_type': String(25), 
+        'service_id': Integer(), 
+        'service_start':Date(),
+        'service_end':Date(), 
+        'referral_pathway': String(25),
+        'final_status': String(50), 
+        'closure_type': String(50),
+        'program_closure_type':String(50),
+        'gender': String(25),
+        'race': String(45),
+        'age': Integer(),
+        'birth_date': Date(),
+        'language_primary': String(30)}
+
+        schema = {k:v for k, v in base_schema.items() if k in proto_stint.columns}
+
+        proto_stint = proto_stint[list(schema.keys())]
+        table_label = self.date_label.replace(' ','_')
+
+        proto_stint.to_sql(f'{table_label}_filtered',schema='participants',con=self.engine, if_exists='replace',dtype=schema, index=False)
+
+
+
+
