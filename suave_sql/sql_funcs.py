@@ -4951,15 +4951,19 @@ class ServiceAudit(Queries):
       else 'ongoing' end closed_service
   from stints.neon
   join 
-  (select participant_id, 
-        case when group_concat(distinct new_stint) = 'new' then 'new' 
+(select participant_id, 
+        case when group_concat(distinct new_stint) = 'new' and count(distinct stint_num) = 1 and min(stint_start) >= {self.q_t1} then 'brand new'
+          when count(distinct stint_num) > 1 and min(stint_start) >= {self.q_t1} then 'brand new, reopened'        
+          when group_concat(distinct new_stint) = 'new' then 'new'
           when group_concat(distinct new_stint) = 'continuing' then 'continuing'
           else 'reopened' end new_stint,
-        case when group_concat(distinct closed_stint) = 'closed' then 'closed' 
+        case 
+          when min(stint_num) = 1 and sum(stint_num) > 1 and group_concat(distinct closed_stint) = 'closed' then 'reopened, closed'
+          when group_concat(distinct closed_stint) = 'closed' then 'closed' 
           when group_concat(distinct closed_stint) = 'ongoing' then 'ongoing'
-          else 'reopened' end closed_stint
+          else 'reopened, ongoing' end closed_stint
       from
-      (select distinct participant_id, stint_start, stint_end, 
+      (select distinct participant_id, stint_num, stint_start, stint_end, 
         case when stint_start < {self.q_t1} then 'continuing' else 'new' end new_stint,
         case when stint_end between {self.q_t1} and {self.q_t2} then 'closed' else 'ongoing' end closed_stint
         from stints.stints_plus_stint_count
