@@ -4952,7 +4952,7 @@ class ServiceAudit(Queries):
   from stints.neon
   join 
 (select participant_id, 
-        case when group_concat(distinct new_stint) = 'new' and count(distinct stint_num) = 1 and min(stint_start) >= {self.q_t1} then 'brand new'
+        case when group_concat(distinct new_stint) = 'new' and count(distinct stint_num) = 1 and min(stint_start) >= {self.q_t1} and min(stint_num) = 1 then 'brand new'
           when count(distinct stint_num) > 1 and min(stint_start) >= {self.q_t1} then 'brand new, reopened'        
           when group_concat(distinct new_stint) = 'new' then 'new'
           when group_concat(distinct new_stint) = 'continuing' then 'continuing'
