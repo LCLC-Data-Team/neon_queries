@@ -3205,7 +3205,7 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
   {f'where service_type = "case management" and program_end between {self.q_t1} and {self.q_t2}' if discharged_only else ''}
    group by participant_id),
 
-goal_areas as (select distinct goal_domain, participant_id, goal_regexp from parts
+goal_areas as (select distinct goal_domain, goal_start, participant_id, goal_regexp from parts
  join neon.isp_goals using(participant_id)
  join (select participant_id, max(isp_id) isp_id from neon.isp_goals group by participant_id) i using(participant_id, isp_id)
  join goal_key using(goal_domain)),
@@ -3213,7 +3213,7 @@ goal_areas as (select distinct goal_domain, participant_id, goal_regexp from par
 long_link as (select participant_id, linkage_id, 
   case when internal_program = 'therapy' then 'Mental Health'
   when internal_program = 'housing' then 'Housing' else linkage_type end linkage_type,
-  linkage_org, 
+  linkage_org, linked_date, start_date,
   case when start_date is null and (end_date is null or end_date > {self.q_t2}) then 'unstarted'
   when start_date is not null and (end_date is null or end_date > {self.q_t2} {f' or abs(datediff(program_end, end_date))< 5' if discharged_only else ''}) then 'active'
   else 'concluded' end linkage_status
@@ -3226,6 +3226,7 @@ extra_long_link as (
   select * from long_link
   union all
   select participant_id, linkage_id, case when goal_domain like "education%" then 'Education' else goal_domain end as linkage_type, linkage_org,
+  linked_date, start_date, 
   case when start_date is null and (end_date is null or end_date > {self.q_t2}) then 'unstarted'
   when start_date is not null and (end_date is null or end_date > {self.q_t2} {f' or abs(datediff(program_end, end_date))< 5' if discharged_only else ''}) then 'active'
   else 'concluded' end linkage_status from neon.isp_goals_linkages
@@ -3240,6 +3241,8 @@ select participant_id, linkage_type,
   count(distinct case when linkage_status = 'concluded' then linkage_id else null end) concluded,
   count(distinct case when linkage_status = 'unstarted' then linkage_id else null end) unstarted
   from extra_long_link
+join goal_areas using(participant_id)
+where linkage_type regexp goal_regexp and ((linked_date >= goal_start or linked_date is null) or (start_date >= goal_start or start_date is null))
 group by participant_id, linkage_type),
 
   
