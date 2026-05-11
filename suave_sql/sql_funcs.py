@@ -2787,6 +2787,8 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
                 final_table_group_by = f'group by {grouping_cols}'
             if 'outcome' in grouping_cols:
                 rank_where = rank_where + f"{'where' if len(rank_where) == 0 else ' and'} case_outcome is not null"
+            if grouping_cols in ['if_incarcerated','class_after_trial_plea']:
+                rank_where = rank_where + f"{'where' if len(rank_where) == 0 else ' and'} case_outcome regexp 'Guilty Plea|Found Guilty|Guilty Verdict|On probation at intake'"
             if grouping_cols =='total':
                 final_table_select = f'count(distinct participant_id) total_clients, count(distinct mycase_id) total_cases'
 
