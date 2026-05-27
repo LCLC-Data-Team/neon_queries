@@ -4918,7 +4918,13 @@ class ServiceAudit(Queries):
         """Get label for date range (YYYY, MM YYYY, CYQX YYYY, MM YY, or "Timeframe")"""
         start = pd.Timestamp(self.t1).normalize()
         end = pd.Timestamp(self.t2).normalize()
+        
+        # --- Fiscal Year (Jul 1 -> Jun 30) ---
+        fy_start = pd.Timestamp(year=start.year, month=7, day=1)
 
+        if start == fy_start and \
+        end == (fy_start + pd.DateOffset(years=1) - pd.Timedelta(days=1)):
+            return f"FY{str(end.year)[-2:]}"
         # --- Full Year ---
         if start.to_period("Y") == end.to_period("Y") and \
         start == start.to_period("Y").start_time.normalize() and \
