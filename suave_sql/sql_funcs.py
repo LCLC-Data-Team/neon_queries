@@ -168,56 +168,6 @@ where ((program_start is null or program_start <= {self.q_t2}) and (program_end 
         create table stints.neon_chd as(select * from stints.neon
         where program_type regexp 'chd|community navigation|violence prevention');
 
-drop table if exists neon.client_teams;
-create table neon.client_teams as
-with active_services as(
-select participant_id, first_name, last_name, service_type from {self.table}
-where program_end is null and service_end is null),
-
-all_staff as(
-select participant_id, service_type, full_name as staff_name, team
-from (select participant_id, full_name, 
-case when a.staff_type like 'outreach%' then 'outreach'
-when a.staff_type like 'case%' then 'case management'
-when a.staff_type like '%attorney%' then 'legal'
-end as 'service_type', team
-from neon.assigned_staff a
-left join neon.staff_ref r using(full_name)
-where staff_end_date is null and staff_active='yes') e),
-
-big_table as(
-select * from active_services
-left join all_staff using(participant_id, service_type)),
-
-service_counts as (select participant_id, count(distinct service_type) as service_count
-from big_table
-where service_type not like 'therapy' and team is not null
-group by participant_id),
-team_counts as(select participant_id, team, count(team) as team_count from big_table
-where team is not null
-group by participant_id, team),
-
-wide_teams as (select * from
-(select distinct n.participant_id, n.first_name, n.last_name, case_managers, cm.team as cm_team, outreach_workers, ow.team as ow_team, attorneys, a.team as leg_team from 
-(select * from 
-{self.table} where program_end is null and service_end is null) n
-left join neon.staff_ref cm on n.case_managers = cm.full_name
-left join neon.staff_ref a on n.attorneys = a.full_name
-left join neon.staff_ref ow on n.outreach_workers = ow.full_name) a),
-
-better_teams as (
-select participant_id, team as participant_team from (
-select participant_id, count(distinct service_type) as team_service_count from big_table
-where team is not null
-group by participant_id
-) s
-join team_counts using(participant_id)
-where team_service_count <= team_count)
-
-select * from wide_teams
-left join better_teams using(participant_id)
-;
-
 drop table if exists neon.cm_summary;
 create table neon.cm_summary as(
 with PARTS as 
@@ -4116,7 +4066,7 @@ class Grants(Queries):
         df.columns = ["Import Type", "Reporting Month", "Unique Client ID", "Assessment Location", "Intake/Assessment Date","Case Type", "Case Subtype","Gender","Race", "Hispanic/Latino", "Residential Zip Code","Issue Presented","Impact of Incarceration","Notes"]
         return df
 
-    def a2j_import(self):
+    def a2j_import(self, include_pending = False):
         '''
         Returns table for a2j's import csv template (in use as of aug '25)
 
@@ -4133,6 +4083,31 @@ merge as (select distinct mycase_id, legal_id, mycase_name, participant_id, firs
 join neon.legal_mycase using(participant_id)
 where case_outcome_date between {self.q_t1} and {self.q_t2}),
 
+new_cases as (
+select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, juvenile_adult, case_start, case_outcome_date, case_type, case_outcome, sentence from parts
+join neon.legal_mycase using(participant_id)
+where case_start between {self.q_t1} and {self.q_t2} and (case_outcome_date is null or case_outcome_date > {self.q_t2}) and (case_end is null or case_end > {self.q_t2})
+),
+
+pending_cases as (select * 
+from neon.leg_mc
+        join 
+            (select distinct participant_id, stint_start from  stints.stints_plus_stint_count
+            join (select distinct participant_id, program_start, program_end from stints.neon) n using(participant_id)
+            where (program_start <= stint_end OR stint_end IS NULL) AND (program_end >= stint_start OR program_end IS NULL)
+        ) n using(participant_id, stint_start)
+        left join 
+          (select distinct mycase_id, stage_start t2_stage_start, stage case_stage_t2 from mycase.case_stages
+            join
+                (select mycase_id, max(stage_start) stage_start from mycase.case_stages
+                where stage_start <= {self.q_t2}
+                group by mycase_id) 
+            m using(mycase_id, stage_start)) st using(mycase_id)
+        where case_start <= {self.q_t1} and (case_outcome_date is null or case_outcome_date > {self.q_t2}) and 
+  (case_end is null or case_end > {self.q_t2}) and (case_stage_t2 is null or case_stage_t2 not regexp "case closed.*|msnp")),
+
+
+
 merge_link as (select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, 
           juvenile_adult, linked_date, case_start, null case_outcome_date, case_type, null as case_outcome, null as sentence from parts
 join neon.legal_mycase using(participant_id)
@@ -4141,14 +4116,25 @@ join (select distinct participant_id, max(linked_date) linked_date from neon.lin
 )
 
 
-select 'Case' as import_type, '{month_name}' as reporting_month, 
+select 'Case Closed' as import_type, '{month_name}' as reporting_month, 
 mycase_id, case_start, case_start, case_outcome_date,
-case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' else juvenile_adult end case_type,
+case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
 case_type as case_subtype, case_outcome, sentence, gender,
    
 case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
 case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
 from merge
+
+UNION ALL
+
+select 'Case Opened' as import_type, '{month_name}' as reporting_month, 
+mycase_id, case_start, case_start, case_outcome_date,
+case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
+case_type as case_subtype, case_outcome, sentence, gender,
+   
+case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
+case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
+from new_cases
 
 UNION ALL
 
@@ -4158,11 +4144,41 @@ case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adul
 case_type as case_subtype, case_outcome, sentence, gender,
 case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
 case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
-from merge_link;'''
+from merge_link'''
         
+        if include_pending:
+            addendum = f'''(select distinct  'Pending Case' as import_type, '{month_name}' as reporting_month, 
+            mycase_id, case_start, case_start, case_outcome_date,
+            case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
+            case when case_type = 'Missing' then null else case_type end as case_subtype, case_outcome, sentence, gender,
+            
+            case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "Other" end race,
+            case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
+            
+            
+            from parts
+            join pending_cases using(participant_id))
+            '''
+            query = query + ' UNION ALL ' + addendum
         df = self.query_run(query)
         df.columns = ["Import Type","Reporting Month","Unique Case Number","Start Date","Date Case Filed", "Case Closing Date", "Case Type", "Case Subtype", "Type of Service Provided", "Case Outcome-General","Gender", "Race", "Hispanic/Latino", "Residential Zip Code", "Case is in Illinois Jurisdiction","Notes"]
         return df
+
+    def a2j_compare_subtypes(self, a2j_df, existing_subtype_path):
+        subtype_df = pd.read_csv(existing_subtype_path).drop_duplicates()
+        id_col = 'Issue Presented' if 'Issue Presented' in a2j_df.columns else 'Unique Case Number'
+        
+        concat_cols = a2j_df[[id_col,'Case Type','Case Subtype']].copy()
+        concat_cols.columns = subtype_df.columns
+        subtype_df = pd.concat([subtype_df, concat_cols]).drop_duplicates(subset = 'Unique Case Number', keep='first', ignore_index=True)
+
+        updates = (a2j_df[[id_col]]
+            .join(subtype_df.set_index("Unique Case Number")[["Case Type", "Case Subtype"]], on=id_col))
+        
+        a2j_df.update(updates)
+        subtype_df.to_csv(existing_subtype_path, index=False)
+        return a2j_df
+
 
     def cvi_demographics(self):
         '''
@@ -4918,7 +4934,7 @@ class ServiceAudit(Queries):
         """Get label for date range (YYYY, MM YYYY, CYQX YYYY, MM YY, or "Timeframe")"""
         start = pd.Timestamp(self.t1).normalize()
         end = pd.Timestamp(self.t2).normalize()
-        
+
         # --- Fiscal Year (Jul 1 -> Jun 30) ---
         fy_start = pd.Timestamp(year=start.year, month=7, day=1)
 
@@ -5514,9 +5530,9 @@ select *,
         for closure in closure_types:
             close_reasons = close_df[close_df['closed_program']=='closed'].groupby([f'{closure}_id'],as_index=False).agg(
                 had_intake = ('intake_date', lambda x:  list(x.unique())[0]),
-                program_close_reason =('program_close_reason',lambda x: sorted(list(x.unique()))),
-                service_close_reason =('service_close_reason',lambda x: sorted(list(x.unique()))),
-                final_statuses = ('final_status',lambda x: sorted(list(x.unique()))),
+                program_close_reason =('program_close_reason',lambda x: sorted(list(x.unique()), key=lambda v: (v is not None, str(v)))),
+                service_close_reason =('service_close_reason',lambda x: sorted(list(x.unique()), key=lambda v: (v is not None, str(v)))),
+                final_statuses = ('final_status',lambda x: sorted(list(x.unique()), key=lambda v: (v is not None, str(v)))),
                 lowest_status_score = ('final_status_score','min'),
                 highest_status_score = ('final_status_score','max'),
                 avg_status_score = ('final_status_score','mean'))
@@ -5639,10 +5655,12 @@ select *,
         if not hasattr(self, 'all_services_closures'):
             self.add_closure_info()
         
-        demographic_info = self.query_run('''select participant_id, gender, race, age, birth_date, language_primary from neon.basic_info b''')
+        demographic_info = self.query_run('''select participant_id, first_name, last_name, gender, race, age, birth_date, language_primary from neon.basic_info b''')
         proto_stint = pd.merge(self.all_services_closures, demographic_info, how='left',on='participant_id')
         proto_stint = proto_stint[proto_stint['service_received']==True]
         base_schema = {'participant_id':Integer(), 
+        'first_name':String(50),
+        'last_name':String(50),
         'program_type':String(25), 
         'program_id': Integer(), 
         'program_start': Date(),
