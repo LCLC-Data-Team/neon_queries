@@ -12,37 +12,48 @@ def clipboard_decorator(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         result = func(self, *args, **kwargs)
-        
+
         if isinstance(result, pd.DataFrame) and self.clipboard:
             result.to_clipboard(index=False)
         return result
+
     return wrapper
 
-class Tables: 
-    def __init__ (self, t1, t2, engine, print_SQL = True, 
-    clipboard = False, default_table = "stints.neon", mycase = True, cloud_run=False):
-        '''
+
+class Tables:
+    def __init__(
+        self,
+        t1,
+        t2,
+        engine,
+        print_SQL=True,
+        clipboard=False,
+        default_table="stints.neon",
+        mycase=True,
+        cloud_run=False,
+    ):
+        """
         establishes settings and runs stints for the desired time period
 
-        Parameters: 
+        Parameters:
             t1: start date, formatted as "YYYY-MM-DD"
             t2: end date, formatted as "YYYY-MM-DD"
             print_sql(Bool): whether to print the SQL statements when run, defaults to True
             clipboard(Bool): whether to copy the output table to your clipboard, defaults to False
             default_table: the source table to run queries on. defaults to "stints.neon", can also use "stints.neon_chd", or a participants table
             mycase(Bool): whether the user has a formatted MyCase SQL database, defaults to True
-        
+
         Examples:
             Set up a table of all clients in Neon in 2024 ::
-            
+
                 e = Queries(t1 = '2024-01-01', t2='2024-12-31')
-            
+
             Set up a table of CHD clients in Q3 of 2024::
 
                 e = Queries(t1= '2024-07-01', t2= '2024-09-30', default_table = stints.neon_chd)
 
 
-        '''
+        """
         self.engine = engine
         self.t1 = t1
         self.t2 = t2
@@ -54,43 +65,75 @@ class Tables:
         self.print_SQL = print_SQL
         self.clipboard = clipboard
         self.cloud_run = cloud_run
-        
+
         self.con = self.engine.connect().execution_options(autocommit=True)
         self.stints_cloud_run() if cloud_run else self.stints_run()
         self.grant_dict = {
-'a2j': {'grant_name':'A2J',
-        'grant_start':'"2025-07-01"',
-        'grant_end':'"2026-06-30"'},
-'idhs': {'grant_name':'IDHS VP',
-        'grant_start':'"2025-07-01"',
-        'grant_end':'"2026-06-30"',
-        'neighborhoods':['North Lawndale']},
-'cvi':{'grant_name':'ICJIA - CVI',
-        'grant_start':'"2025-10-01"',
-        'grant_end':'"2026-09-30"',
-        'neighborhoods':['North Lawndale','East Garfield Park','West Garfield Park','Austin','North Austin']},
-'r3':{'grant_name':'ICJIA - R3',
-        'grant_start':'"2024-11-01"',
-        'grant_end':'"2025-10-30"',
-        'neighborhoods':['North Lawndale','East Garfield Park','West Garfield Park','Austin','North Austin']},
-'scan':{'grant_name':'DFSS - SCAN',
-        'grant_start':'"2025-01-01"',
-        'grant_end':'"2025-12-31"'},
-'ryds':{'grant_name':'IDHS - RYDS',
-        'grant_start':'"2025-10-01"',
-        'grant_end':'"2026-09-30"',
-        'neighborhoods':['North Lawndale']},
-'jac':{'grant_name': 'JAC - CVI',
-        'grant_start':'"2025-08-01"',
-        'grant_end':'"2027-07-31"',
-        'neighborhoods':['North Lawndale','East Garfield Park','West Garfield Park','Austin','North Austin']}}
-
+            "a2j": {
+                "grant_name": "A2J",
+                "grant_start": '"2025-07-01"',
+                "grant_end": '"2026-06-30"',
+            },
+            "idhs": {
+                "grant_name": "IDHS VP",
+                "grant_start": '"2025-07-01"',
+                "grant_end": '"2026-06-30"',
+                "neighborhoods": ["North Lawndale"],
+            },
+            "cvi": {
+                "grant_name": "ICJIA - CVI",
+                "grant_start": '"2025-10-01"',
+                "grant_end": '"2026-09-30"',
+                "neighborhoods": [
+                    "North Lawndale",
+                    "East Garfield Park",
+                    "West Garfield Park",
+                    "Austin",
+                    "North Austin",
+                ],
+            },
+            "r3": {
+                "grant_name": "ICJIA - R3",
+                "grant_start": '"2024-11-01"',
+                "grant_end": '"2025-10-30"',
+                "neighborhoods": [
+                    "North Lawndale",
+                    "East Garfield Park",
+                    "West Garfield Park",
+                    "Austin",
+                    "North Austin",
+                ],
+            },
+            "scan": {
+                "grant_name": "DFSS - SCAN",
+                "grant_start": '"2025-01-01"',
+                "grant_end": '"2025-12-31"',
+            },
+            "ryds": {
+                "grant_name": "IDHS - RYDS",
+                "grant_start": '"2025-10-01"',
+                "grant_end": '"2026-09-30"',
+                "neighborhoods": ["North Lawndale"],
+            },
+            "jac": {
+                "grant_name": "JAC - CVI",
+                "grant_start": '"2025-08-01"',
+                "grant_end": '"2027-07-31"',
+                "neighborhoods": [
+                    "North Lawndale",
+                    "East Garfield Park",
+                    "West Garfield Park",
+                    "Austin",
+                    "North Austin",
+                ],
+            },
+        }
 
     def query_run(self, query):
         '''
         runs an SQL query (without a semicolon)
         format for a custom query: query_run(f"""query""")
-        
+
         Parameters:
             query: SQL query
         '''
@@ -104,32 +147,39 @@ class Tables:
         if self.clipboard is True:
             df.to_clipboard(index=False)
         return df
-    
+
     def query_modify(self, original_query, modification):
-        '''
+        """
         edit a base SQL query, not particularly useful on its own
 
         Parameters:
             original_query: base SQL query
             modification: string to modify it
-        '''
+        """
         # Use regular expressions to find the GROUP BY clause
-        match = (re.compile(r"(?i)(\bGROUP\s+BY\b)",  re.IGNORECASE)).search(original_query)
-        
+        match = (re.compile(r"(?i)(\bGROUP\s+BY\b)", re.IGNORECASE)).search(
+            original_query
+        )
+
         if match:
             # Insert the condition before the GROUP BY clause
-            modified_query = original_query[:match.start()] + modification + ' ' + original_query[match.start():]
+            modified_query = (
+                original_query[: match.start()]
+                + modification
+                + " "
+                + original_query[match.start() :]
+            )
         else:
             # If no GROUP BY clause is found, just append the condition to the end of the query
-            modified_query = original_query + ' ' + modification
+            modified_query = original_query + " " + modification
         return modified_query
-    
+
     def stints_cloud_run(self):
-        '''
+        """
         abbreviated stints run for gcloud run
-        '''
-        if self.table != 'stints.active':
-            stints_statements = f'''
+        """
+        if self.table != "stints.active":
+            stints_statements = f"""
             drop table if exists {self.table};
             create table {self.table} as(
             select first_name, last_name, participant_id, program_type, program_start, program_end, 
@@ -141,17 +191,17 @@ class Tables:
             join neon.basic_info using(participant_id)
             where ((program_start is null or program_start <= {self.q_t2}) and (program_end is null or program_end >= {self.q_t1})) and 
             (service_start is null or service_start <= {self.q_t2}) and (service_end is null or service_end >= {self.q_t1}));
-            '''
-            
-            for statement in stints_statements.split(';'):
+            """
+
+            for statement in stints_statements.split(";"):
                 if statement.strip():
-                    self.con.execute(text(statement.strip() + ';'))
+                    self.con.execute(text(statement.strip() + ";"))
 
     def stints_run(self):
-        '''
+        """
         runs the stints code
-        '''
-        stints_statements = f'''
+        """
+        stints_statements = f"""
 drop table if exists stints.neon;
 create table stints.neon as(
 select first_name, last_name, participant_id, program_type, program_start, program_end, 
@@ -313,9 +363,10 @@ where rn = 1)
 
 select * from min_start
 join max_end using(participant_id, stint_num));
-        '''
+        """
         if self.mycase == True:
-            stints_statements = stints_statements + ' ' + f'''drop table if exists neon.legal_mycase;
+            stints_statements = (
+                stints_statements + " " + f"""drop table if exists neon.legal_mycase;
             create table neon.legal_mycase as(		with part as (select participant_id, program_start, program_end from neon.programs
             where program_type not like "RJCC|Violence Prevention"),
 
@@ -360,23 +411,21 @@ join max_end using(participant_id, stint_num));
             left join misc.felony_classes f2 on prior.class_after_trial_plea = f2.felony) ranked) reduced)
             
             select * from base
-            join fel_rankings using(mycase_id));'''
-        
+            join fel_rankings using(mycase_id));"""
+            )
+
         ### update teams
 
-
-
-
-        for statement in stints_statements.split(';'):
+        for statement in stints_statements.split(";"):
             if statement.strip():
-                self.con.execute(text(statement.strip() + ';'))
+                self.con.execute(text(statement.strip() + ";"))
 
-    def run_report(self, func_dict,*args, **kwargs):
-        '''
+    def run_report(self, func_dict, *args, **kwargs):
+        """
         runs a desired report
         Parameters:
-            func_dict: dictionary of functions to include, defaults to self.report_funcs. To use a different  
-        '''       
+            func_dict: dictionary of functions to include, defaults to self.report_funcs. To use a different
+        """
         result_dict = {}
         try:
             for result_key, result_value in func_dict.items():
@@ -385,15 +434,19 @@ join max_end using(participant_id, stint_num));
                     func = getattr(self, func_name, None)
                     if func and callable(func):
                         try:
-                            result = func(*func_args, *args, **{**kwargs, **func_kwargs})
+                            result = func(
+                                *func_args, *args, **{**kwargs, **func_kwargs}
+                            )
                             result_dict[result_key] = result
                         except Exception as e:
                             print(func_name)
                             print()
-                            result_dict[result_key] = f"Error: function could not be parsed"
-                
+                            result_dict[result_key] = (
+                                f"Error: function could not be parsed"
+                            )
+
                 except ValueError:
-                    (func_name, func_args) = result_value
+                    func_name, func_args = result_value
                     func = getattr(self, func_name, None)
                     if func and callable(func):
                         try:
@@ -401,101 +454,115 @@ join max_end using(participant_id, stint_num));
                             result = func(*func_args, *args, **kwargs)
                             result_dict[result_key] = result
                         except Exception as e:
-                            result_dict[result_key] = f"Error: function could not be parsed"
-                
+                            result_dict[result_key] = (
+                                f"Error: function could not be parsed"
+                            )
+
         except Exception as e:
             result_dict[result_key] = f"Error: {str(e)}"
 
         return result_dict
 
     def run_projections(self, func_dict, *args, **kwargs):
-        '''
+        """
         runs a report of grant projections
         function dictionary follows format{grant_name:{func_dict}}
-        '''
+        """
+
         def combine_initial_dictionaries():
             output_dict = {}
             for key in self.grant_dict.keys() & func_dict.keys():
                 merged = dict(self.grant_dict[key])
-                merged['queries'] = func_dict[key]
+                merged["queries"] = func_dict[key]
                 output_dict[key] = merged
             return output_dict
 
         def create_outputs():
             for grant_name, grant_dict_vals in func_dict.items():
-                grant_start = grant_dict_vals['grant_start']
-                grant_end = grant_dict_vals['grant_end']
-                queries = grant_dict_vals['queries']
-                time_phases_dict = {'last_month':{
-                    'table_name':f'grant_projections.{grant_name}_lmonth',
-                    'phase_start': prev_first_str,
-                    'phase_end': prev_last_str},
-                    'qtd':{
-                    'table_name':f'grant_projections.{grant_name}_qtd',
-                    'phase_start':quarter_start,
-                    'phase_end':quarter_end},
-                    'ytd':{
-                    'table_name':f'grant_projections.{grant_name}_full',
-                    'phase_start':grant_start,
-                    'phase_end':grant_end}
-                    }
+                grant_start = grant_dict_vals["grant_start"]
+                grant_end = grant_dict_vals["grant_end"]
+                queries = grant_dict_vals["queries"]
+                time_phases_dict = {
+                    "last_month": {
+                        "table_name": f"grant_projections.{grant_name}_lmonth",
+                        "phase_start": prev_first_str,
+                        "phase_end": prev_last_str,
+                    },
+                    "qtd": {
+                        "table_name": f"grant_projections.{grant_name}_qtd",
+                        "phase_start": quarter_start,
+                        "phase_end": quarter_end,
+                    },
+                    "ytd": {
+                        "table_name": f"grant_projections.{grant_name}_full",
+                        "phase_start": grant_start,
+                        "phase_end": grant_end,
+                    },
+                }
                 outputs = {}
                 for phase_name, phase_dict in time_phases_dict.items():
-                    phase_table = phase_dict['table_name']
+                    phase_table = phase_dict["table_name"]
                     self.table_update(phase_table, True)
-                    self.q_t1 = phase_dict['phase_start']
-                    self.q_t2 = phase_dict['phase_end']
+                    self.q_t1 = phase_dict["phase_start"]
+                    self.q_t2 = phase_dict["phase_end"]
                     outputs[phase_name] = self.run_report(queries)
-                func_dict[grant_name]['outputs'] = outputs
+                func_dict[grant_name]["outputs"] = outputs
 
                 ## projection part
                 projection_reciprocal = percent_grant_complete(grant_start, grant_end)
                 projected_outputs = {}
 
-                for query_name, query_output in func_dict[grant_name]['outputs']['ytd'].items():
+                for query_name, query_output in func_dict[grant_name]["outputs"][
+                    "ytd"
+                ].items():
                     print(query_name, query_output)
                     proj_df = query_output.copy()
-                    s = proj_df.select_dtypes(include=[np.number])*projection_reciprocal
+                    s = (
+                        proj_df.select_dtypes(include=[np.number])
+                        * projection_reciprocal
+                    )
                     s = s.round(0).astype(int)
                     proj_df[s.columns] = s
                     projected_outputs[query_name] = proj_df
-                func_dict[grant_name]['outputs']['projections'] = projected_outputs
+                func_dict[grant_name]["outputs"]["projections"] = projected_outputs
 
-
-        
         def percent_grant_complete(grant_start, grant_end):
-            # finish this 
+            # finish this
             try:
                 gstart = datetime.strptime(grant_start, '"%Y-%m-%d"').date()
             except Exception:
-                gstart = datetime.strptime(grant_start, '%Y-%m-%d').date()
-            
+                gstart = datetime.strptime(grant_start, "%Y-%m-%d").date()
+
             try:
                 gend = datetime.strptime(grant_end, '"%Y-%m-%d"').date()
             except Exception:
-                gend = datetime.strptime(grant_end, '%Y-%m-%d').date()
+                gend = datetime.strptime(grant_end, "%Y-%m-%d").date()
 
-            pct_complete = ((prev_last - gstart).days / (gend - gstart).days)
-            projection_reciprocal = (1 / pct_complete)
+            pct_complete = (prev_last - gstart).days / (gend - gstart).days
+            projection_reciprocal = 1 / pct_complete
             return projection_reciprocal
-        
+
         def format_outputs():
             clean_dict = {}
             for grant_name, output_dict in func_dict.items():
                 formatted_outs = {}
-                for query_name, query_df in output_dict['outputs']['ytd'].items():
+                for query_name, query_df in output_dict["outputs"]["ytd"].items():
                     print(grant_name, query_name, query_df)
-                    non_numeric_cols = query_df.select_dtypes(exclude=[np.number]).columns.tolist()
-                    numeric_cols = query_df.select_dtypes(include=[np.number]).columns.tolist()
+                    non_numeric_cols = query_df.select_dtypes(
+                        exclude=[np.number]
+                    ).columns.tolist()
+                    numeric_cols = query_df.select_dtypes(
+                        include=[np.number]
+                    ).columns.tolist()
 
                     # maybe generic df has a non-numeric column when transposed?
-                    if len(query_df)==1 and len(numeric_cols)>1:
-                        print(grant_name, query_name, 'len = 1')
-                        #transposed_df = query_df.T
-                        #transposed_numeric_cols = transposed_df.select_dtypes(include=[np.number]).columns.tolist()
+                    if len(query_df) == 1 and len(numeric_cols) > 1:
+                        print(grant_name, query_name, "len = 1")
+                        # transposed_df = query_df.T
+                        # transposed_numeric_cols = transposed_df.select_dtypes(include=[np.number]).columns.tolist()
                         all_dfs = {
                             k: v[query_name].T
-                            for k, v in output_dict['outputs'].items()
+                            for k, v in output_dict["outputs"].items()
                         }
                         # Concat along columns, with period as first level
                         numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
@@ -503,68 +570,76 @@ join max_end using(participant_id, stint_num));
                         result = numeric_dfs.reset_index()
 
                     # Build a dict of DataFrames for each period, indexed by non-numeric columns if present
-                    
+
                     elif non_numeric_cols:
-                        #print(grant_name, query_name, 'has non numeric')
-                        #print('numeric cols', numeric_cols)
-                        #print('non-numeric', non_numeric_cols)
-                        #print(query_df)
+                        # print(grant_name, query_name, 'has non numeric')
+                        # print('numeric cols', numeric_cols)
+                        # print('non-numeric', non_numeric_cols)
+                        # print(query_df)
                         all_dfs = {
                             k: v[query_name].set_index(non_numeric_cols)[numeric_cols]
-                            for k, v in output_dict['outputs'].items()
+                            for k, v in output_dict["outputs"].items()
                         }
                         # Concat along columns, with period as first level
                         numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
                         # Combine non-numeric index and numeric MultiIndex columns
                         result = numeric_dfs
-                    
 
                     else:
-                        print(grant_name, query_name, 'is else')
+                        print(grant_name, query_name, "is else")
                         all_dfs = {
                             k: v[query_name][numeric_cols]
-                            for k, v in output_dict['outputs'].items()
+                            for k, v in output_dict["outputs"].items()
                         }
                         numeric_dfs = pd.concat(all_dfs, axis=1, names=["Period"])
                         result = numeric_dfs
 
                     # Consistent int/float formatting
-                    numeric_cols_result = result.select_dtypes(include=[np.number]).columns
+                    numeric_cols_result = result.select_dtypes(
+                        include=[np.number]
+                    ).columns
                     numeric_data = result[numeric_cols_result].to_numpy()
-                    has_decimals = np.any(~np.isclose(numeric_data, numeric_data.astype(int)))
+                    has_decimals = np.any(
+                        ~np.isclose(numeric_data, numeric_data.astype(int))
+                    )
                     if has_decimals:
-                        result[numeric_cols_result] = result[numeric_cols_result].round(1)
+                        result[numeric_cols_result] = result[numeric_cols_result].round(
+                            1
+                        )
                     else:
-                        result[numeric_cols_result] = result[numeric_cols_result].astype('Int64')
+                        result[numeric_cols_result] = result[
+                            numeric_cols_result
+                        ].astype("Int64")
                     result[numeric_cols_result] = result[numeric_cols_result].fillna(0)
                     formatted_outs[query_name] = result
                 clean_dict[grant_name] = formatted_outs
             return clean_dict
 
-
-
         prev_last = date.today().replace(day=1) - timedelta(days=1)
         prev_first = prev_last.replace(day=1)
         prev_last_str = f"'{prev_last.strftime('%Y-%m-%d')}'"
         prev_first_str = f"'{prev_first.strftime('%Y-%m-%d')}'"
-        quarter_start = f"'{(pd.Timestamp.now() - pd.offsets.QuarterBegin()).strftime('%Y-%m-%d')}'"
-        quarter_end =f"'{(pd.Timestamp.now() + pd.offsets.QuarterEnd()).strftime('%Y-%m-%d')}'"
-        
-        #doesn't actually matter much, 
+        quarter_start = (
+            f"'{(pd.Timestamp.now() - pd.offsets.QuarterBegin()).strftime('%Y-%m-%d')}'"
+        )
+        quarter_end = (
+            f"'{(pd.Timestamp.now() + pd.offsets.QuarterEnd()).strftime('%Y-%m-%d')}'"
+        )
+
+        # doesn't actually matter much,
 
         func_dict = combine_initial_dictionaries()
         create_outputs()
         cleaned_dict = format_outputs()
         return cleaned_dict
 
-    
-    def table_update(self, desired_table, update_default_table = False):
+    def table_update(self, desired_table, update_default_table=False):
         if isinstance(desired_table, str):
             statements = None
             desired_table = desired_table.lower()
-            if desired_table == 'rjcc':
-                new_table = 'stints.rjcc'
-                statements = f'''
+            if desired_table == "rjcc":
+                new_table = "stints.rjcc"
+                statements = f"""
                 drop table if exists {new_table};
                 create table {new_table} as(
                 with mc as (
@@ -592,12 +667,12 @@ join max_end using(participant_id, stint_num));
                 from stints.neon
                 group by participant_id) pc using(participant_id)) s using(participant_id)
                 where program_type = 'rjcc' or program_count = 1);
-                '''
+                """
             else:
-                if desired_table in self.grant_dict: 
+                if desired_table in self.grant_dict:
                     grant_type = f"'{self.grant_dict[desired_table]['grant_name']}'"
-                    new_table = f'participants.{desired_table}'
-                    statements = f'''
+                    new_table = f"participants.{desired_table}"
+                    statements = f"""
                     drop table if exists {new_table};
                     create table {new_table} as(
                     with idhs as (select *, case when (min_grant_start between {self.q_t1} and {self.q_t2}) then 'new' else 'continuing' end as new_client,
@@ -620,13 +695,12 @@ join max_end using(participant_id, stint_num));
                     gender, race, age, birth_date, language_primary, case_managers, outreach_workers, attorneys, new_client, 
                     case when discharged_client = 'service' and service_count is not null then 'program' else discharged_client end as discharged_client from idhs
                     left join discharged_prog using(participant_id))
-                    '''
-                
+                    """
 
             if statements:
-                for statement in statements.split(';'):
+                for statement in statements.split(";"):
                     if statement.strip():
-                        self.con.execute(text(statement.strip() + ';'))
+                        self.con.execute(text(statement.strip() + ";"))
             if not statements:
                 new_table = desired_table
             if update_default_table is True:
@@ -634,18 +708,31 @@ join max_end using(participant_id, stint_num));
 
 
 class Audits(Tables):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True, cloud_run=False):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
+    def __init__(
+        self,
+        t1,
+        t2,
+        engine,
+        print_SQL=True,
+        clipboard=False,
+        default_table="stints.neon",
+        mycase=True,
+        cloud_run=False,
+    ):
+        super().__init__(
+            t1, t2, engine, print_SQL, clipboard, default_table, mycase, cloud_run
+        )
+
     @clipboard_decorator
     def active_missing_intake(self):
-        '''
+        """
         Returns a table of active clients with no intake
-        
+
         Note:
             Audit - Clients Missing Intake
-        '''
+        """
 
-        query = f'''
+        query = f"""
         select distinct participant_id, 
   concat(first_name," ", left(last_name,1),".") client_name, program_type,
   program_start, case_managers, attorneys, outreach_workers
@@ -654,17 +741,17 @@ left join (select participant_id, max(intake_date) intake_date from neon.intake
   group by participant_id) i using(participant_id)
 where intake_date is null and program_end is null and program_type not regexp "deer.*|violence.*" and
   (case_managers is not null or outreach_workers is not null or attorneys is not null)
-'''
+"""
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def program_lacks_services(self):
-        '''
+        """
         Returns a table of active programs with no corresponding services.
-        
-        '''
-        query = f'''
+
+        """
+        query = f"""
         with psg_table as (
         select * from (select first_name, last_name, participant_id from neon.basic_info) i
         join neon.big_psg using(participant_id)
@@ -672,41 +759,41 @@ where intake_date is null and program_end is null and program_type not regexp "d
         where program_type regexp 'chd|community navigation' and (program_end is null or program_end >= {self.q_t1}) and (service_end is null or service_end  >= {self.q_t1}))
 
         select * from psg_table where service_type is null
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def service_lacks_grant(self):
-        '''
+        """
         Returns a table of active services without a corresponding grant.
-        '''
-        query = f'''with psg_table as (
+        """
+        query = f"""with psg_table as (
         select * from (select first_name, last_name, participant_id from neon.basic_info) i
         join neon.big_psg using(participant_id)
         where program_type = 'chd' and (program_end is null or  >= {self.q_t1}) and (service_end is null or service_end  >= {self.q_t1}))
 
         select * from psg_table where (service_type is not null and grant_type is null) or (service_end is null and grant_end is not null)
-        order by participant_id asc'''
+        order by participant_id asc"""
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     @clipboard_decorator
-    def service_lacks_staff(self, active_only = True):
-        '''
+    def service_lacks_staff(self, active_only=True):
+        """
         Returns a table of active services without a corresponding staff member.
 
         Parameters:
             active_only (Bool): only looks at clients with active programs/services
-        '''
+        """
 
         if active_only:
-            where_statement = f'''(program_end is null) and (service_end is null)'''
+            where_statement = f"""(program_end is null) and (service_end is null)"""
 
         else:
-            where_statement = f'''(program_end is null or program_end >= {self.q_t1}) and (service_end is null or service_end >= {self.q_t1})'''
+            where_statement = f"""(program_end is null or program_end >= {self.q_t1}) and (service_end is null or service_end >= {self.q_t1})"""
 
-        query = f'''
+        query = f"""
         select participant_id, first_name, last_name, service_type, service_start from 
         (select distinct service_id, participant_id, first_name, last_name, service_type, service_start 
         from neon.big_psg
@@ -716,17 +803,17 @@ where intake_date is null and program_end is null and program_type not regexp "d
         where latest_service = 1) s using(service_id)
         where assigned_staff = 'missing' and {where_statement}) b
         order by service_type, last_name
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def staff_lacks_service(self):
-        '''
+        """
         Returns a table of staff members assigned to clients without a corresponding service type
-        '''
+        """
 
-        query = f'''with serv as (
+        query = f"""with serv as (
         select participant_id, program_type, service_type, service_start, service_end from neon.big_psg
         where service_end is null and program_end is null and service_type is not null),
 
@@ -749,12 +836,12 @@ where intake_date is null and program_end is null and program_type not regexp "d
         select * from staf
         left join serv using(participant_id, service_type)
         where program_type is null;
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def legal_audit_lawyers(self, active_only = True, new_cases_only = False):
-        '''
+    def legal_audit_lawyers(self, active_only=True, new_cases_only=False):
+        """
         Returns several joined tables of missing legal data
 
         Parameters:
@@ -763,12 +850,19 @@ where intake_date is null and program_end is null and program_type not regexp "d
 
         Note:
             Audit - Legal Data
-        '''
+        """
 
-
-        def caseid_NAN(active_only = True, new_cases = False):
-            active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
-            new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
+        def caseid_NAN(active_only=True, new_cases=False):
+            active_only = (
+                f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)"
+                if active_only
+                else ""
+            )
+            new_cases = (
+                f"and case_start between {self.q_t1} and {self.q_t2}"
+                if new_cases
+                else f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})"
+            )
 
             query = f'''
             with base as (
@@ -780,13 +874,21 @@ where intake_date is null and program_end is null and program_type not regexp "d
             where case_id = "NAN"'''
 
             df = self.query_run(query)
-            return(df)
+            return df
 
-        def custody_status(active_only = True, new_cases = False):
-            active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
-            new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
+        def custody_status(active_only=True, new_cases=False):
+            active_only = (
+                f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)"
+                if active_only
+                else ""
+            )
+            new_cases = (
+                f"and case_start between {self.q_t1} and {self.q_t2}"
+                if new_cases
+                else f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})"
+            )
 
-            query = f'''
+            query = f"""
             with base as (
             select * from neon.legal_mycase
             where mycase_id not regexp "31580789"
@@ -826,16 +928,24 @@ where intake_date is null and program_end is null and program_type not regexp "d
             select * from needs_updating
             union all
             select * from missing
-            order by item desc, attorney asc'''
+            order by item desc, attorney asc"""
 
             df = self.query_run(query)
-            return(df)
+            return df
 
-        def misaligned_attorneys(active_only = True, new_cases = False):
-            active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
-            new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
+        def misaligned_attorneys(active_only=True, new_cases=False):
+            active_only = (
+                f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)"
+                if active_only
+                else ""
+            )
+            new_cases = (
+                f"and case_start between {self.q_t1} and {self.q_t2}"
+                if new_cases
+                else f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})"
+            )
 
-            query = f'''
+            query = f"""
             with neon_staff as(select participant_id, assigned_staff as neon_attorney from 
             (select distinct participant_id, service_id from stints.neon_chd where service_type = 'legal' and program_end is null and service_end is null) l
             join neon.service_staff using(participant_id, service_id)),
@@ -857,28 +967,44 @@ where intake_date is null and program_end is null and program_type not regexp "d
             
             select attorney, item, mycase_name, participant_id, explanation
             from messy 
-            '''
+            """
             df = self.query_run(query)
-            return(df)
+            return df
 
-        def missing_from_neon(active_only = True, new_cases = False):
-            active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
-            new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
-            
-            query = f'''
+        def missing_from_neon(active_only=True, new_cases=False):
+            active_only = (
+                f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)"
+                if active_only
+                else ""
+            )
+            new_cases = (
+                f"and case_start between {self.q_t1} and {self.q_t2}"
+                if new_cases
+                else f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})"
+            )
+
+            query = f"""
             select attorney, 'Case missing from NeonOne' as item, case_id, mycase_name, participant_id from neon.legal_mycase
             where legal_id is null and mycase_id not regexp "31580789"
             {active_only}
             {new_cases}
-            '''
+            """
             df = self.query_run(query)
-            return(df)
-        
-        def missing_felony_class(active_only = True, new_cases = False):
-            active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
-            new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
+            return df
 
-            query = f'''
+        def missing_felony_class(active_only=True, new_cases=False):
+            active_only = (
+                f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)"
+                if active_only
+                else ""
+            )
+            new_cases = (
+                f"and case_start between {self.q_t1} and {self.q_t2}"
+                if new_cases
+                else f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})"
+            )
+
+            query = f"""
             with base as (
             select * from neon.legal_mycase
             where mycase_id not regexp "31580789"
@@ -896,15 +1022,23 @@ where intake_date is null and program_end is null and program_type not regexp "d
             select * from ongoing_cases
             union all
             select * from closed_cases
-            '''
+            """
             df = self.query_run(query)
-            return(df)
+            return df
 
-        def undated_outcome(active_only = True, new_cases = False):
-            active_only = f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)" if active_only else ''
-            new_cases = f'and case_start between {self.q_t1} and {self.q_t2}' if new_cases else f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})'
+        def undated_outcome(active_only=True, new_cases=False):
+            active_only = (
+                f"and participant_id in (select distinct participant_id from {self.table} where service_type = 'legal' and program_end is null and service_end is null)"
+                if active_only
+                else ""
+            )
+            new_cases = (
+                f"and case_start between {self.q_t1} and {self.q_t2}"
+                if new_cases
+                else f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})"
+            )
 
-            query = f'''
+            query = f"""
             with base as (
             select * from neon.legal_mycase
             where mycase_id not regexp "31580789"
@@ -913,43 +1047,83 @@ where intake_date is null and program_end is null and program_type not regexp "d
 
             select attorney, participant_id, mycase_name, "Case outcome missing date" as item from base
             where case_outcome is not null and case_outcome_date is null
-            '''
+            """
 
             df = self.query_run(query)
-            return(df)
+            return df
 
         func_dict = {
-            'missing_from_neon': (missing_from_neon, (active_only,new_cases_only,)),
-            'missing_felony_class': (missing_felony_class, (active_only,new_cases_only,)),
-            'caseid_NAN': (caseid_NAN, (active_only,new_cases_only,)),
-            'misaligned_attorneys': (misaligned_attorneys, (active_only,new_cases_only,)),
-            'custody_status': (custody_status, (active_only,new_cases_only,)),
-            'undated_outcome': (undated_outcome, (active_only,new_cases_only,)),
+            "missing_from_neon": (
+                missing_from_neon,
+                (
+                    active_only,
+                    new_cases_only,
+                ),
+            ),
+            "missing_felony_class": (
+                missing_felony_class,
+                (
+                    active_only,
+                    new_cases_only,
+                ),
+            ),
+            "caseid_NAN": (
+                caseid_NAN,
+                (
+                    active_only,
+                    new_cases_only,
+                ),
+            ),
+            "misaligned_attorneys": (
+                misaligned_attorneys,
+                (
+                    active_only,
+                    new_cases_only,
+                ),
+            ),
+            "custody_status": (
+                custody_status,
+                (
+                    active_only,
+                    new_cases_only,
+                ),
+            ),
+            "undated_outcome": (
+                undated_outcome,
+                (
+                    active_only,
+                    new_cases_only,
+                ),
+            ),
         }
-        
+
         result_dict = {}
         for result_key, (func, func_args) in func_dict.items():
             try:
                 result_dict[result_key] = func(*func_args)
             except Exception as e:
                 print(result_key, f"Error: {str(e)}")
-        
+
         result_df = pd.concat(result_dict.values(), ignore_index=True)
-        result_df['mycase_name'] = result_df['mycase_name'].fillna(result_df['client_name'])
-        result_df = result_df.rename(columns={'mycase_name':'case/client name'})
-        result_df = result_df[['attorney','participant_id','case/client name', 'item', 'explanation']].sort_values(by=['attorney','participant_id'])
-        
+        result_df["mycase_name"] = result_df["mycase_name"].fillna(
+            result_df["client_name"]
+        )
+        result_df = result_df.rename(columns={"mycase_name": "case/client name"})
+        result_df = result_df[
+            ["attorney", "participant_id", "case/client name", "item", "explanation"]
+        ].sort_values(by=["attorney", "participant_id"])
+
         return result_df
-    
+
     @clipboard_decorator
     def missing_address_info(self):
-        '''
+        """
         Returns all clients missing a zipcode or community from their address
 
         Note:
             Audit - Clients Missing Address Info
-        '''
-        query = f'''
+        """
+        query = f"""
         with base as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers from {self.table}),
         
         ranked_addresses as (select *,
@@ -969,20 +1143,21 @@ where intake_date is null and program_end is null and program_type not regexp "d
         address1, zip, community from base 
         left join address_table using(participant_id)
         where community is null or zip is null
-                '''
+                """
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def missing_edu_employ(self):
-        '''
+        """
         Checks which clients are missing education/employment info from linkages and intake
 
         Note:
             Audits - Missing Education/Employment
-        '''
-        def set_query(new_client_col = True):
-            query= f'''
+        """
+
+        def set_query(new_client_col=True):
+            query = f"""
             with idhs as (select * from {self.table}),
             mini_idhs as(select distinct(participant_id), first_name, last_name, program_start, {'new_client, ' if new_client_col else ''} case_managers as case_manager, outreach_workers outreach_worker from idhs),
 
@@ -1022,8 +1197,9 @@ where intake_date is null and program_end is null and program_type not regexp "d
                 last_grade_completed
             from big_table
             where currently_employed is null and currently_enrolled is null
-                    '''
+                    """
             return query
+
         try:
             query = set_query(True)
             df = self.query_run(query)
@@ -1032,60 +1208,63 @@ where intake_date is null and program_end is null and program_type not regexp "d
             df = self.query_run(query)
         return df
 
-
     ### SERVICE-SPECIFIC SHINY STUFF
     @clipboard_decorator
-    def active_session_tally(self, service_type = 'Case Management', successful_only = True):
-        '''
+    def active_session_tally(
+        self, service_type="Case Management", successful_only=True
+    ):
+        """
         Counts the number of active sessions for each participant_id
 
         Parameters:
             service_type: what service to count sessions of. Defaults to 'Case Management'
             successful_only: Whether to only include successful contacts. Defaults to True
-        
+
         Note:
             Case Sessions - Number of Case Sessions per Client
-        '''
+        """
 
-        successful_statement = "and successful_contact = 'yes'" if successful_only else ''
-        query = f'''
+        successful_statement = (
+            "and successful_contact = 'yes'" if successful_only else ""
+        )
+        query = f"""
         select * from
         (select distinct participant_id from stints.active where service_type = '{service_type}') st 
         left join (select participant_id, count(participant_id) total_sessions, max(session_date) latest_session from neon.case_sessions
         join (select participant_id, service_start from stints.active where service_type = '{service_type}') st using(participant_id)
         where contact_type = '{service_type}' and session_date >= service_start {successful_statement}
         group by participant_id) al using(participant_id)
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def cm_isp_status(self):
-        '''
+        """
         Table of ISP status for active clients
 
         Note:
             ISPs - Statuses for Active Clients
-        '''
-        query = f'''
+        """
+        query = f"""
         select participant_id, latest_update, total_goals, goals_completed, 
             case when latest_update is null then 'Needs Initial'
         when datediff(DATE_ADD(latest_update, INTERVAL 3 MONTH), CURDATE()) <0 then 'Needs Update'
         else 'Up to Date' end 'ISP_Status'
         from neon.isp_tracker
         right join (select distinct participant_id from stints.active) a using(participant_id)
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     def cm_missing_clinical_assess(self):
-        '''Gets clients missing initial/post assessments for the PCL/Buss-Perry
-        
+        """Gets clients missing initial/post assessments for the PCL/Buss-Perry
+
         Note:
             Audit - Clients Missing Clinical Assessments
-        '''
+        """
 
-        query = f'''with part as(
+        query = f"""with part as(
         select participant_id, concat(first_name," ", left(last_name,1),".") client_initials, case_managers case_manager, service_start from {self.table}),
 
         bp as (select * from assess.cm_tracker
@@ -1118,38 +1297,38 @@ where intake_date is null and program_end is null and program_type not regexp "d
         (select * from long_bp
         union all
         select * from long_pcl) l 
-        order by case_manager, participant_id asc'''
+        order by case_manager, participant_id asc"""
         df = self.query_run(query)
         df = df.drop_duplicates()
-        return(df)
-    
+        return df
+
     @clipboard_decorator
     def cm_linkage_totals(self):
-        '''
+        """
         Table of linkage totals for active clients
 
         Note:
             Linkages - Totals for Active Clients
-        '''
-        query = f'''
+        """
+        query = f"""
         select * from (select distinct participant_id from stints.active where service_type = 'case management') stint
         left join(
         select participant_id, count(distinct linkage_id) total_linkages, max(linked_date) as latest_linkage from neon.linkages
         join (select * from stints.active where service_type = 'case management') s using(participant_id)
         where service_start <= linked_date and client_initiated = 'LCLC Staff'
         group by participant_id) p using(participant_id)
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     @clipboard_decorator
     def cm_linkage_timeframe_info(self):
-        '''
+        """
         Table of all linkages in timeframe, ordered by CM
 
         Note:
             Linkages - All Linkages in Timeframe w/ Info
-        '''
+        """
 
         query = f"""
 select entered_by case_manager, participant_id, name,
@@ -1160,18 +1339,17 @@ from neon.linkages
 order by case_manager, participant_id
 """
         df = self.query_run(query)
-        return(df)
-        
+        return df
 
     @clipboard_decorator
     def outreach_missing_eligibility(self):
-        '''
+        """
         Returns info on ALL CLIENTS missing an outreach eligibility form
 
         Note:
             Audit - Missing Outreach Eligibility
-        '''
-        query = f'''
+        """
+        query = f"""
 with base as (select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, outreach_workers, min(program_start) program_start
   from {self.table}
   where case_managers is not null or outreach_workers is not null or service_type = 'civic engagement'
@@ -1180,19 +1358,19 @@ group by participant_id, name, case_managers, outreach_workers)
 select participant_id, name, case_managers, outreach_workers, 'Missing Outreach Eligibility' from base
 left join assess.outreach_eligibility using(participant_id)
 where assessment_date is null or program_start > assessment_date 
-'''
+"""
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def outreach_missing_assessments(self):
-        '''
-        Returns a table of the count and names of missing outreach assessments for clients. 
+        """
+        Returns a table of the count and names of missing outreach assessments for clients.
 
         Note:
             Outreach - Missing Assessment Information
-        '''
-        query = f'''
+        """
+        query = f"""
         with parts as (select distinct participant_id, concat(first_name, " ",left(last_name,1), ".") name,
         service_start, outreach_workers outreach_worker from {self.table} where service_type = 'outreach'),
 		eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig from assess.outreach_eligibility
@@ -1226,15 +1404,28 @@ where assessment_date is null or program_start > assessment_date
     (intervention_count IS NOT NULL) ) num_missing_assessments,
     CONCAT_WS( ', ', elig_count, assess_count, intervention_count) missing_assessments
     from str_table
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
 
 class Queries(Audits):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True,cloud_run=False):
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
-    '''
+    def __init__(
+        self,
+        t1,
+        t2,
+        engine,
+        print_SQL=True,
+        clipboard=False,
+        default_table="stints.neon",
+        mycase=True,
+        cloud_run=False,
+    ):
+        super().__init__(
+            t1, t2, engine, print_SQL, clipboard, default_table, mycase, cloud_run
+        )
+
+    """
     Sets up a table for a given timeframe
 
     Parameters:
@@ -1254,11 +1445,11 @@ class Queries(Audits):
         Create an object of CHD clients in Q3 of 2024::
 
             e = Queries(t1= '2024-07-01', t2= '2024-09-30', default_table = stints.neon_chd)
-    '''
+    """
 
     @clipboard_decorator
-    def assess_assm(self, cutoff_score = 2, score_date = 'min'):
-        '''
+    def assess_assm(self, cutoff_score=2, score_date="min"):
+        """
         Counts clients with ASSM scores in a certain range.
 
         Parameters:
@@ -1271,15 +1462,15 @@ class Queries(Audits):
                 e.assess_assm()
 
             Get a count of clients with their latest ASSM scores between 1-3::
-                
+
                 e.assess_assm(cutoff_score=3, score_date='max')
-        
+
         Note:
             Assessments - ASSM Scores by Category
 
-        '''
+        """
 
-        query = f'''
+        query = f"""
         with elig_assess as(
         select * from assess.assm
         join (select distinct participant_id, program_start from {self.table}
@@ -1320,17 +1511,19 @@ class Queries(Audits):
         count(distinct case when life_skills is not null then participant_id else null end) as life_skills,
         count(distinct case when mobility is not null then participant_id else null end) as mobility
         from main_assm;
-        '''
+        """
         df = self.query_run(query)
-        df = df.set_index('domain').T
+        df = df.set_index("domain").T
         print(df)
-        df['crisis_percentage'] = df['crisis_scores']/df['total_participants']
-        df = df.reset_index().sort_values(by=['crisis_percentage'], ascending=False)
-        df['crisis_percentage'] = df['crisis_percentage'].apply(lambda x: "{:.2f}%".format(x * 100))
-        return(df)
-    
-    def assess_assm_improvement(self, timeframe = False, isp_goals = False):
-        '''
+        df["crisis_percentage"] = df["crisis_scores"] / df["total_participants"]
+        df = df.reset_index().sort_values(by=["crisis_percentage"], ascending=False)
+        df["crisis_percentage"] = df["crisis_percentage"].apply(
+            lambda x: "{:.2f}%".format(x * 100)
+        )
+        return df
+
+    def assess_assm_improvement(self, timeframe=False, isp_goals=False):
+        """
         Returns the number of clients with ASSM improvements in each category
 
 
@@ -1340,21 +1533,24 @@ class Queries(Audits):
 
         Example:
             Get a breakdown of ASSM score improvements in the timeframe::
-                
+
                 e.assess_assm_improvement(timeframe = True)
-            
+
             Get the number of clients whose ASSM increased in an ISP goal area::
 
                 e.assm_improvement(isp_goals = True)
 
         Note:
             Assessments - ASSM Score Changes
-        '''
-        
-        where_statement = f'''where min_date = assessment_date or assessment_date between {self.q_t1} and {self.q_t2}''' if timeframe else ''
-        
-        
-        query = f'''
+        """
+
+        where_statement = (
+            f"""where min_date = assessment_date or assessment_date between {self.q_t1} and {self.q_t2}"""
+            if timeframe
+            else ""
+        )
+
+        query = f"""
             with parts as (
                 select distinct participant_id, min(program_start) program_start
                 from {self.table}
@@ -1455,9 +1651,9 @@ class Queries(Audits):
             union all
             select participant_id, 'Mobility' as goal_domain
             from matrix where Mobility = 1)
-        '''
+        """
         if isp_goals:
-            addendum = f'''
+            addendum = f"""
             ,
             participant_goals as (
             select distinct participant_id, num_assms, goal_domain from neon.isp_goals
@@ -1478,9 +1674,9 @@ class Queries(Audits):
             from domain_merge
             group by goal_domain
             order by total_participants desc
-            '''
+            """
         else:
-            addendum = f''' 
+            addendum = f""" 
             select 'Have an ASSM' assm_domain, count(distinct participant_id) total_clients from max
             union all
             select 'Multiple ASSMs' assm_domain, count(distinct participant_id) total_clients from max
@@ -1493,22 +1689,22 @@ class Queries(Audits):
             when assm_domain = 'Multiple ASSMs' then 2 
             when assm_domain = 'sum' then 3
             else 4
-            end, total_clients desc'''
-        
-        query = query + ' ' + addendum
+            end, total_clients desc"""
+
+        query = query + " " + addendum
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
     def assess_outreach_completion(self):
-        '''
+        """
         Returns a table of outreach assessments (and total number of assessments) and their completion rates within 30 days/while working with a client/
-        
+
         Note:
             Assessments - Outreach Completion Rates
-        '''
+        """
 
-        query = f'''
+        query = f"""
         with parts as (select distinct(participant_id), first_name, last_name, outreach_workers outreach_worker, service_start outreach_start from {self.table}
         where service_type like 'Outreach'),
         eligibility as (select participant_id, count(distinct assessment_date) as elig_count, max(assessment_date) as latest_elig, min(abs(datediff(outreach_start, assessment_date))) time_between, 'Eligibility' assess_type
@@ -1575,35 +1771,45 @@ class Queries(Audits):
         total_assessed, assessed_in_30 
         from long_and_unioned)b
 
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
-    def assess_cm_tracker(self, active_only = True, new_clients = False, summary_table = False):
-        '''
+    def assess_cm_tracker(
+        self, active_only=True, new_clients=False, summary_table=False
+    ):
+        """
         Returns a table of clients with CM assessments and their latest assessment dates.
-        
+
         Parameters:
             active_only (Bool): whether to only look at clients with active CM services. Defaults to True
             new_clients_only (Bool): whether to only look at clients with new CM services in the timeframe. Defaults to False
             summary_table (Bool): whether to return a summary table of clients with assessments. Defaults to False
-            
+
         Note:
-            Assessments - Case Management Tracker    
-        '''
-        
-        new_clients_str = ''
+            Assessments - Case Management Tracker
+        """
+
+        new_clients_str = ""
         if new_clients:
-            if self.table.startswith('stints.'):
-                new_clients_str = f'b.program_start between {self.q_t1} and {self.q_t2}' if active_only else ''
+            if self.table.startswith("stints."):
+                new_clients_str = (
+                    f"b.program_start between {self.q_t1} and {self.q_t2}"
+                    if active_only
+                    else ""
+                )
             else:
                 new_clients_str = 'new_client = "new"'
-        
-        active_clients = "b.case_managers is not null" if not active_only else ''
-        better_parameters = 'where ' + ' and '.join(filter(None, [active_clients, new_clients_str])) if any([active_clients, new_clients_str]) else ''
 
-        query = f'''
+        active_clients = "b.case_managers is not null" if not active_only else ""
+        better_parameters = (
+            "where " + " and ".join(filter(None, [active_clients, new_clients_str]))
+            if any([active_clients, new_clients_str])
+            else ""
+        )
+
+        query = f"""
         with all_parts as (select distinct(participant_id), b.first_name, b.last_name, b.case_managers case_manager from neon.basic_info b
         join {self.table} using(participant_id)
         {better_parameters}),
@@ -1628,9 +1834,9 @@ class Queries(Audits):
         left join (
         select participant_id, latest_date pcl_latest from assess.cm_tracker
         where assessment_type = 'pcl') pcl using (participant_id))
-        '''
-        if summary_table: 
-            addendum = f'''
+        """
+        if summary_table:
+            addendum = f"""
     select count(distinct participant_id) 'total',
         count(distinct case when isp_latest is not null then participant_id else null end) 'ISP',
         count(distinct case when needs_latest is not null then participant_id else null end) 'Needs_Assess',
@@ -1642,45 +1848,51 @@ class Queries(Audits):
         count(distinct case when fcs_latest is not null then participant_id else null end) 'FCS',
         count(distinct case when pcl_latest is not null then participant_id else null end) 'PCL'
         from cm_assesses
-            '''
+            """
         else:
-            addendum = f'''select * from cm_assesses'''
+            addendum = f"""select * from cm_assesses"""
 
-        query = query + ' ' + addendum
+        query = query + " " + addendum
         df = self.query_run(query)
         if summary_table:
-            df = df.T.rename(columns={0:'Total Clients'})
-            total = df.loc['total', 'Total Clients']
-            df['Percentage'] = df['Total Clients'] / total * 100
-            df = df.round(1).astype({'Percentage': 'float64'}).fillna(0)
-        return(df)
+            df = df.T.rename(columns={0: "Total Clients"})
+            total = df.loc["total", "Total Clients"]
+            df["Percentage"] = df["Total Clients"] / total * 100
+            df = df.round(1).astype({"Percentage": "float64"}).fillna(0)
+        return df
 
     @clipboard_decorator
-    def assess_score_change(self, timeframe=True, min_score = None):
-        '''
+    def assess_score_change(self, timeframe=True, min_score=None):
+        """
         Returns a table of CM assessments & their score changes.
 
         Parameters:
             timeframe (Bool): only looks at score changes in the timeframe. Defaults to True
-            min_score: the lowest pre-assessment score to consider. Defaults to None 
-        
+            min_score: the lowest pre-assessment score to consider. Defaults to None
+
         Examples:
             Get count of assessment score changes within timeframe::
-                
+
                 e.assess_score_change()
-            
+
             Get all-time count of assessment score changes for initial scores of 32+::
-                
+
                 e.assess_score_change(timeframe=False, min_score=32)
-        
+
         Note:
             Assessments - Case Management Score Changes
-        '''
+        """
 
-        where_statement = f"""and latest_date >= {self.q_t1} and earliest_date <= {self.q_t2}""" if timeframe else ''
+        where_statement = (
+            f"""and latest_date >= {self.q_t1} and earliest_date <= {self.q_t2}"""
+            if timeframe
+            else ""
+        )
 
-        min_score_statement = f'''and earliest_score >= {min_score}''' if min_score else ''
-        query = f'''
+        min_score_statement = (
+            f"""and earliest_score >= {min_score}""" if min_score else ""
+        )
+        query = f"""
         with tracking_base as(SELECT *, 
         case when earliest_score > latest_score then 'lowered' 
             when earliest_score = latest_score then 'remained'
@@ -1697,25 +1909,29 @@ class Queries(Audits):
     count(distinct case when score_change = 'increased' then participant_id else null end) increased
     from tracking_base
     group by assessment_type
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-    
-    def assess_risk_factor_assessments(self, timeframe = True, distinct_clients = False):
-        '''
+        return df
+
+    def assess_risk_factor_assessments(self, timeframe=True, distinct_clients=False):
+        """
         Counts # of risk factor, protective, and strength-based inventories for clients.
 
         Parameters:
             timeframe (Bool): Whether to only count assessments in timeframe. Defaults to True
             distinct_clients (Bool): Whether to count multiple assessments per client. Defaults to False
-        
+
         Note:
             Assessments - Count by Inventory Type (protective, risk-factor, strength-based)
-        '''
-        distinct = 'distinct ' if distinct_clients else ''
-        timeframe = f'and assessment_date between {self.q_t1} and {self.q_t2}' if timeframe else ''
+        """
+        distinct = "distinct " if distinct_clients else ""
+        timeframe = (
+            f"and assessment_date between {self.q_t1} and {self.q_t2}"
+            if timeframe
+            else ""
+        )
 
-        query = f'''
+        query = f"""
         with cm as (select participant_id, assessment_date, assessment_type,
         case when assessment_type = 'ASSM' then 'Asset'
 			when assessment_type regexp "BP|PCL" then 'Risk'
@@ -1745,14 +1961,13 @@ class Queries(Audits):
         select * from outreach) a
         where participant_id in (select distinct participant_id from {self.table}) {timeframe}
         group by assessment_category
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     @clipboard_decorator
-    def custody_status(self, summary_table = False, custody_type = None):
-        '''
+    def custody_status(self, summary_table=False, custody_type=None):
+        """
         Returns a table of clients' most recent custody statuses
 
         Parameters:
@@ -1767,12 +1982,12 @@ class Queries(Audits):
             Get the number of clients with each custody status::
 
                 e.custody_status(summary_table=True)
-        
+
         Note:
             Legal - Custody Statuses (Individual or Grouped)
-        '''
-        
-        query = f'''
+        """
+
+        query = f"""
         with parts as (
         select distinct participant_id, first_name, last_name, case_managers, attorneys, program_start
         from {self.table}),
@@ -1788,48 +2003,56 @@ class Queries(Audits):
         cust_table as(
         select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, attorneys, program_start, case when custody_status is null then 'MISSING' else custody_status end as custody_status, custody_status_date from parts
         left join cust using(participant_id))
-        '''
+        """
         if summary_table:
-            addendum = f'''select custody_status, count(distinct participant_id) as count
+            addendum = f"""select custody_status, count(distinct participant_id) as count
                             from cust_table
-                            group by custody_status'''
+                            group by custody_status"""
         else:
-            where_statement = f'where custody_status = "{custody_type}" and (case_managers is not null or attorneys is not null)' if custody_type else ''
-            addendum = f'''select * from cust_table 
-            {where_statement}'''
+            where_statement = (
+                f'where custody_status = "{custody_type}" and (case_managers is not null or attorneys is not null)'
+                if custody_type
+                else ""
+            )
+            addendum = f"""select * from cust_table 
+            {where_statement}"""
 
-        query = query + ' ' + addendum
+        query = query + " " + addendum
 
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
-    def dem_address(self, new_clients = False, group_by = None):
-        '''
-        returns client address records. 
+    def dem_address(self, new_clients=False, group_by=None):
+        """
+        returns client address records.
 
         Parameters:
             new_clients (bool): include only new clients. Defaults to False
             group_by: group client records, takes 'zip', 'community', 'region'. Defaults to None.
-        
+
         Examples:
             Get a table of each client's address::
 
                 e.dem_address()
-            
+
             Get a count of the number of client's in each neighborhood::
-                
+
                 e.dem_address(group_by='community')
-            
+
             Get a count of the number of new clients in each zipcode::
 
                 e.dem_address(new_clients=True, group_by='zip')
-        
+
         Note:
             Demographics - Client Addresses
-        '''
-        new_client_statement = f'where program_start between {self.q_t1} and {self.q_t2}' if new_clients else ''
-        query = f'''
+        """
+        new_client_statement = (
+            f"where program_start between {self.q_t1} and {self.q_t2}"
+            if new_clients
+            else ""
+        )
+        query = f"""
             with ranked_addresses as (select *,
             ROW_NUMBER() OVER (partition by participant_id ORDER BY primary_address DESC, address_id DESC, civicore_address_id asc) AS rn
             from neon.address
@@ -1838,12 +2061,12 @@ class Queries(Audits):
             select participant_id, first_name, last_name, address1, address2, city, state, zip, primary_address, community
             from ranked_addresses
             where rn = 1)
-            '''
+            """
         if not group_by:
-            modifier = f'''select * from address_table'''
+            modifier = f"""select * from address_table"""
         else:
-            if group_by == 'region':
-                modifier = f'''
+            if group_by == "region":
+                modifier = f"""
                             ,
                             region_table as(
                 select participant_id, case when community not regexp ".*garfield park|little village|north lawndale|austin" then region else community end as community
@@ -1860,18 +2083,18 @@ class Queries(Audits):
                         ELSE 1
                     END,
                     community ASC;
-                '''
+                """
             else:
-                modifier = f'''select {group_by}, count(distinct participant_id) as count from address_table
-                group by {group_by}'''
+                modifier = f"""select {group_by}, count(distinct participant_id) as count from address_table
+                group by {group_by}"""
         query = self.query_modify(str(query), modifier)
         df = self.query_run(query)
-        return(df)
-        
+        return df
+
     @clipboard_decorator
-    def dem_age(self, new_clients = False, age = 18):
-        '''
-        Returns a count of clients below/above a certain age threshold, or identifies clients as juveniles/adults 
+    def dem_age(self, new_clients=False, age=18):
+        """
+        Returns a count of clients below/above a certain age threshold, or identifies clients as juveniles/adults
 
         Parameters:
             new_clients (Bool): if true, only counts clients who began between t1 and t2. defaults to False
@@ -1886,13 +2109,17 @@ class Queries(Audits):
             Get the number of new clients under 18:
 
                 e.dem_age(new_clients=True)
-        
+
         Note:
             Demographics - Client Ages
-        '''
-        new_client_condition = f'''WHERE program_start between {self.q_t1} AND {self.q_t2}''' if new_clients else ''
+        """
+        new_client_condition = (
+            f"""WHERE program_start between {self.q_t1} AND {self.q_t2}"""
+            if new_clients
+            else ""
+        )
 
-        query = f'''
+        query = f"""
         with ages as(
             select *, case when age < {age} then 'juvenile' when age between {age} and 25 then 'emerging adult' when age > 25 then 'adult' else 'missing' end as current_age_group,
             case when active_age < {age} then 'juvenile' when active_age  between {age} and 25 then 'emerging adult' when age > 25 then 'adult' else 'missing' end as active_age_group,
@@ -1913,14 +2140,14 @@ class Queries(Audits):
             left join (select stint_age_group age_group , count(distinct participant_id) as stint_start_age
             from ages group by age_group) s using(age_group)
             group by age_group
-            order by case when age_group ='juvenile' then 1 when age_group ='emerging adult' then 2  when age_group ='adult' then 3 else 4 end'''
+            order by case when age_group ='juvenile' then 1 when age_group ='emerging adult' then 2  when age_group ='adult' then 3 else 4 end"""
 
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     @clipboard_decorator
-    def dem_race_gender(self, race_gender = 'race',new_clients = False):
-        '''
+    def dem_race_gender(self, race_gender="race", new_clients=False):
+        """
         Returns a count of client races or genders
 
         Parameters:
@@ -1933,30 +2160,33 @@ class Queries(Audits):
                 e.dem_race_gender(new_clients=True, race_gender='gender')
 
             Get client races::
-                
+
                 e.dem_race_gender()
-        
+
         Note:
             Demographics - Client Races/Genders
-        '''
-        query = f'''select {race_gender}, count(distinct participant_id) as count
+        """
+        query = f"""select {race_gender}, count(distinct participant_id) as count
         from {self.table}
-        group by {race_gender}'''
-        modifier = f'''WHERE program_start between {self.q_t1} AND {self.q_t2}'''
+        group by {race_gender}"""
+        modifier = f"""WHERE program_start between {self.q_t1} AND {self.q_t2}"""
         if new_clients is True:
-            query = self.query_modify(str(query), modifier)  # Use self.query_modify here
+            query = self.query_modify(
+                str(query), modifier
+            )  # Use self.query_modify here
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     def dem_edu_employ_tracker(self):
-        '''
+        """
         Makes a big, yucky table of education/employment data from linkages + intake
-        
+
         Note:
             Demographics - Client Education/Employment Table
-        '''
-        def set_query(new_client_col = True):
-            query = f'''
+        """
+
+        def set_query(new_client_col=True):
+            query = f"""
             with idhs as (select * from {self.table}),
             mini_idhs as(select distinct(participant_id), {'new_client, ' if new_client_col else ''} first_name, last_name, program_start,  case_managers as case_manager, outreach_workers outreach_worker from idhs),
 
@@ -1995,8 +2225,9 @@ class Queries(Audits):
                 else currently_enrolled end as currently_enrolled, have_diploma_ged,
                 last_grade_completed
             from big_table
-            '''
+            """
             return query
+
         try:
             query = set_query(True)
             df = self.query_run(query)
@@ -2006,8 +2237,8 @@ class Queries(Audits):
         return df
 
     @clipboard_decorator
-    def enrollment(self, program_type = False, service_type = False, grant_type = False):
-        '''
+    def enrollment(self, program_type=False, service_type=False, grant_type=False):
+        """
         Returns a count of clients, with options to break down by program, service, and/or grant.
 
         Parameters:
@@ -2023,7 +2254,7 @@ class Queries(Audits):
             Get the number of clients enrolled in each program::
 
                 e.enrollment(program_type=True)
-            
+
             Get the number of clients receiving each service for every program::
 
                 e.enrollment(program_type=True, service_type=True)
@@ -2031,45 +2262,45 @@ class Queries(Audits):
             Get the number of clients receiving each service on a grant::
 
                 e.enrollment(service_type=True, grant_type=True)
-        
+
         Note:
             Enrollment - Total Clients (overall or by program/service/grant)
-        '''
+        """
 
         types_list = []
         if program_type:
-            types_list.append('program_type')
+            types_list.append("program_type")
         if service_type:
-            types_list.append('service_type')
+            types_list.append("service_type")
         if grant_type:
-            types_list.append('grant_type')
+            types_list.append("grant_type")
         if types_list:
-            types_str = ', '.join(str(st) for st in types_list)
-            query = f'''select {types_str}, count(distinct participant_id) as count
+            types_str = ", ".join(str(st) for st in types_list)
+            query = f"""select {types_str}, count(distinct participant_id) as count
             from {self.table}
-            group by {types_str}'''
+            group by {types_str}"""
         else:
-            query = f'''select count(distinct participant_id) count
-            from {self.table}'''
+            query = f"""select count(distinct participant_id) count
+            from {self.table}"""
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def enrollment_bundles(self, enrollment_level = 'program'):
-        '''
+    def enrollment_bundles(self, enrollment_level="program"):
+        """
         Counts clients by their bundle of programs
 
         Example:
             Get the number of clients enrolled in each combination of programs::
-                
+
                 e.enrollment_bundles()
-        
+
         Parameters:
             enrollment_level: 'program', 'grant' or 'program_generic' to group by only/multiple programs
         Note:
             Enrollment - Client Program Combinations
-        '''
-        if enrollment_level == 'program_generic':
-            query = f'''with merged_progs as (select participant_id, group_concat(distinct program_type) merged_programs from {self.table}
+        """
+        if enrollment_level == "program_generic":
+            query = f"""with merged_progs as (select participant_id, group_concat(distinct program_type) merged_programs from {self.table}
                 group by participant_id)
 
 
@@ -2086,52 +2317,50 @@ class Queries(Audits):
                 where merged_programs like "%,%"
                 group by program_type
                 
-                '''
+                """
         else:
-            query = f'''select prog, count(distinct participant_id) from
+            query = f"""select prog, count(distinct participant_id) from
             (select participant_id, group_concat(distinct {enrollment_level}_type) prog from stints.neon
             where (program_end is null or program_end > {self.q_t1}) and (service_end is null or service_end > {self.q_t1}) and (grant_end is null or grant_end > {self.q_t1})
             group by participant_id) s
-            group by prog'''
-        
-        df = self.query_run(query)
-        return(df)
+            group by prog"""
 
-    
+        df = self.query_run(query)
+        return df
+
     def enrollment_caseloads(self, if_legal=False):
         if if_legal:
-            legal_table = self.table if 'a2j' in self.table else 'neon.legal_mycase'
-            query= f'''select attorney, count(distinct mycase_id) case_count 
+            legal_table = self.table if "a2j" in self.table else "neon.legal_mycase"
+            query = f"""select attorney, count(distinct mycase_id) case_count 
             from {legal_table}
             join mycase.cases using(mycase_id)
-            group by attorney'''
+            group by attorney"""
         else:
-            query= f'''
+            query = f"""
             select service_type, assigned_staff, count(distinct participant_id) clients 
             from {self.table}
             join neon.service_staff using(participant_id, service_id, service_type)
             where staff_start <= {self.q_t2} and (staff_end is null or staff_end >= {self.q_t1})
             group by service_type, assigned_staff
             order by service_type, assigned_staff
-            '''
+            """
         df = self.query_run(query)
-        return(df)
+        return df
 
-    
     def enrollment_flow(self):
-        '''
+        """
         Counts the flow of clients in and out of LCLC in the timeframe.
 
         Example:
             Get the number of clients enrolled/unenrolled in the timeframe::
 
                 e.enrollment_flow()
-        
+
         Note:
             Enrollment - Status Changes
-        '''
-        
-        query = f'''
+        """
+
+        query = f"""
         with progs as(
             select distinct(program_type), participant_id, first_name, last_name, prog_counts ,program_start, program_end,
             case when program_start between {self.q_t1} and {self.q_t2} then 1 else 0 end as if_started,
@@ -2174,13 +2403,19 @@ class Queries(Audits):
             when status = 'ended' then 5 else 6 end asc
             ;
 
-        '''
+        """
 
         df = self.query_run(query)
         return df
 
-    def enrollment_monthly(self, program_type=False, service_type=False, grant_type=False, distinct_clients=True):
-        '''
+    def enrollment_monthly(
+        self,
+        program_type=False,
+        service_type=False,
+        grant_type=False,
+        distinct_clients=True,
+    ):
+        """
         Returns a count of clients, with options to break down by program, service, and/or grant for each month in the timeframt
 
         Parameters:
@@ -2197,7 +2432,7 @@ class Queries(Audits):
             Get the number of clients enrolled in each program::
 
                 e.enrollment(program_type=True)
-            
+
             Get the number of clients receiving each service for every program::
 
                 e.enrollment(program_type=True, service_type=True)
@@ -2205,43 +2440,51 @@ class Queries(Audits):
             Get the number of clients receiving each service on a grant::
 
                 e.enrollment(service_type=True, grant_type=True)
-        
+
         Note:
             Enrollment - Monthly Clients (overall or by program/service/grant)
-        '''
+        """
         months_list = []
 
-        for month_start, month_end in zip(pd.date_range(start=self.t1, end=self.t2, freq = 'MS'), pd.date_range(start=self.t1, end=self.t2, freq = 'ME')):
-            months_list.append(f"count({'distinct' if distinct_clients else ''} case when (end_date is null or end_date >='{month_start.strftime('%Y-%m-%d')}') and start_date <='{(month_end.strftime('%Y-%m-%d'))}' then participant_id else null end) as '{(month_start.strftime('%B %Y'))}'")
+        for month_start, month_end in zip(
+            pd.date_range(start=self.t1, end=self.t2, freq="MS"),
+            pd.date_range(start=self.t1, end=self.t2, freq="ME"),
+        ):
+            months_list.append(
+                f"count({'distinct' if distinct_clients else ''} case when (end_date is null or end_date >='{month_start.strftime('%Y-%m-%d')}') and start_date <='{(month_end.strftime('%Y-%m-%d'))}' then participant_id else null end) as '{(month_start.strftime('%B %Y'))}'"
+            )
 
-        months_str = ', '.join(str(st) for st in months_list)
+        months_str = ", ".join(str(st) for st in months_list)
         types_list = []
 
         if program_type:
-            types_list.append('program_type')
+            types_list.append("program_type")
         if service_type:
-            types_list.append('service_type')
+            types_list.append("service_type")
         if grant_type:
-            types_list.append('grant_type')
+            types_list.append("grant_type")
 
         if types_list:
-            types_str = ', '.join(str(st) for st in types_list)
-            query = f'''select {types_str}, {months_str}
+            types_str = ", ".join(str(st) for st in types_list)
+            query = f"""select {types_str}, {months_str}
             from neon.bi_psg
-            group by {types_str}'''
+            group by {types_str}"""
             df = self.query_run(query)
         else:
-            base = f'''with base as (select * from stints.stints_plus_stint_count 
+            base = f"""with base as (select * from stints.stints_plus_stint_count 
             where participant_id in (select distinct participant_id from {self.table}))
             
-            '''
+            """
             monthly_status_list = []
             month_order = []
-            for month_start, month_end in zip(pd.date_range(start=self.t1, end=self.t2, freq = 'MS'), pd.date_range(start=self.t1, end=self.t2, freq = 'ME')):
-                month_start_str = month_start.strftime('%Y-%m-%d')
-                month_end_str = (month_end.strftime('%Y-%m-%d'))
-                month_order.append((month_start.strftime('%B %Y')))
-                monthly_status_query = f'''
+            for month_start, month_end in zip(
+                pd.date_range(start=self.t1, end=self.t2, freq="MS"),
+                pd.date_range(start=self.t1, end=self.t2, freq="ME"),
+            ):
+                month_start_str = month_start.strftime("%Y-%m-%d")
+                month_end_str = month_end.strftime("%Y-%m-%d")
+                month_order.append((month_start.strftime("%B %Y")))
+                monthly_status_query = f"""
 
                 select participant_id, '{(month_start.strftime('%B %Y'))}' as month, 
                 case 
@@ -2252,108 +2495,108 @@ class Queries(Audits):
                 from base
                 where stint_start < '{month_end_str}' and (stint_end is null or stint_end >= '{month_start_str}')
 
-                '''
+                """
                 monthly_status_list.append(monthly_status_query)
-            status_query = 'UNION ALL'.join(str(st) for st in monthly_status_list)
-            query = base + ' ' +  status_query
-            
+            status_query = "UNION ALL".join(str(st) for st in monthly_status_list)
+            query = base + " " + status_query
+
             df = self.query_run(query)
-            #print(df)
-            df = df.groupby(['month','status']).nunique()
-            df = df.reset_index().pivot(index='status',columns='month',values='participant_id')
+            # print(df)
+            df = df.groupby(["month", "status"]).nunique()
+            df = df.reset_index().pivot(
+                index="status", columns="month", values="participant_id"
+            )
             df = df[month_order]
-            df.loc['TOTAL'] = df.sum()
-            df.loc['TOTAL AT START'] = df.loc['continuing'] + df.loc['ended']
+            df.loc["TOTAL"] = df.sum()
+            df.loc["TOTAL AT START"] = df.loc["continuing"] + df.loc["ended"]
             df = df.reset_index()
 
-        
         return df
-    
+
     def incident_tally(self):
-        '''
-        counts incidents in timeframe, distinguishing between CPIC and non-CPIC events.  
+        """
+        counts incidents in timeframe, distinguishing between CPIC and non-CPIC events.
 
         Example:
             Get the number of incidents in the timeframe::
 
                 e.incident_tally()
-        
+
         Note:
             Mediations/Critical Incidents - Count by Notification Type
-        '''
+        """
 
-        query = f'''SELECT count(case when how_hear regexp '.*CPIC.*' then incident_id else null end) as CPIC,
+        query = f"""SELECT count(case when how_hear regexp '.*CPIC.*' then incident_id else null end) as CPIC,
 	count(case when how_hear not regexp '.*CPIC.*' then incident_id else null end) as non_CPIC
     FROM neon.critical_incidents
-    where (incident_date between {self.q_t1} and {self.q_t2})'''
+    where (incident_date between {self.q_t1} and {self.q_t2})"""
         df = self.query_run(query).T
         return df
-    
+
     def incident_type_tally(self):
-        '''
+        """
         counts incidents in timeframe, distinguishing between fatal and non-fatal events
-        
+
         Note:
             Mediations/Critical Incidents - Count by Incident Type
-        '''
-        
-        query = f'''SELECT type_incident,
+        """
+
+        query = f"""SELECT type_incident,
             count(case when num_deceased > 0 then incident_id else null end) as fatal,
             count(case when num_deceased = 0 then incident_id else null end) as non_fatal
             FROM neon.critical_incidents
             where incident_date between {self.q_t1} and {self.q_t2}
-            group by type_incident'''
+            group by type_incident"""
         df = self.query_run(query)
         return df
 
-    def idhs_incidents(self, CPIC = True):
-        '''
+    def idhs_incidents(self, CPIC=True):
+        """
         Returns incident analysis for CPIC/non-CPIC notifications
 
         Example:
             Get a CPIC notification breakdown for IDHS::
 
                 e.idhs_incidents()
-            
+
             Get a non-CPIC notification breakdown for IDHS::
 
                 e.idhs_incidents(False)
-        
+
         Note:
             Grants: IDHS - VP Incident Tally
-        '''
+        """
         if CPIC:
-            query = f'''SELECT type_incident,
+            query = f"""SELECT type_incident,
             count(case when num_deceased > 0 then incident_id else null end) as fatal,
             count(case when num_deceased = 0 then incident_id else null end) as non_fatal
             FROM neon.critical_incidents
             where how_hear regexp '.*cpic.*' and incident_date between {self.q_t1} and {self.q_t2}
-            group by type_incident'''
+            group by type_incident"""
         else:
-            query = f'''select how_hear, count(incident_id) count from neon.critical_incidents
+            query = f"""select how_hear, count(incident_id) count from neon.critical_incidents
             where incident_date between {self.q_t1} and {self.q_t2}
-            group by how_hear'''
+            group by how_hear"""
         df = self.query_run(query)
         return df
 
-        
-    def incident_response(self, cpic_distinguish=True, as_pct = False):
-        '''
+    def incident_response(self, cpic_distinguish=True, as_pct=False):
+        """
         counts incidents responded to in timeframe
 
         Example:
             Get the number of incident responses in the timeframe::
 
                 e.incident_response()
-        
+
         Parameters:
             cpic_distinguish (Bool): separate CPIC and non-CPIC notifications, defaults to True
             as_pct (Bool): format responded_in_60 as percent, defaults to false
 
         Note:
             Mediations/Critical Incidents - Count by Response Type
-        '''
-        query = f'''
+        """
+        query = f"""
 select {'if_cpic,' if cpic_distinguish else ''} 
   count(distinct incident_id) num_incidents, 
   count(distinct case when did_staff_respond = 'Yes' then incident_id else null end) num_responded,
@@ -2363,44 +2606,50 @@ select {'if_cpic,' if cpic_distinguish else ''}
   TIME_TO_SEC(timediff(staff_response_time, time_notification))/60 responded_in_60  from neon.critical_incidents
 where notification_date between {self.q_t1} and {self.q_t2}) i
 {'group by if_cpic' if cpic_distinguish else ''}
-'''
+"""
         df = self.query_run(query)
         return df
-    
+
     @clipboard_decorator
     def isp_goal_tracker(self):
-        '''
+        """
         Breaks out client ISP goals by domain and completion
 
         Example:
             Get the status of client ISP goals by domain::
 
                 e.isp_goal_tracker()
-        
+
         Note:
             ISPs - Completion Rate by Goal Area
-        '''
+        """
 
-        query = f'''SELECT goal_domain, count(case when latest_status = 'in progress' then participant_id else null end) as in_progress,
+        query = f"""SELECT goal_domain, count(case when latest_status = 'in progress' then participant_id else null end) as in_progress,
         count(case when latest_status = 'completed' then participant_id else null end) as completed,
         count(case when latest_status = 'discontinued' then participant_id else null end) as discontinued,
         count(case when latest_status = 'Not Yet Started' then participant_id else null end) as not_yet_started FROM neon.isp_status
         join (select distinct participant_id, service_start from {self.table}
         where service_type like 'case management') i using(participant_id)
-        group by goal_domain'''
+        group by goal_domain"""
         df = self.query_run(query)
         return df
 
     @clipboard_decorator
-    def isp_tracker(self, just_cm = True, summary_table = False, service_days_cutoff = 45, missing_only = False):
-        '''
+    def isp_tracker(
+        self,
+        just_cm=True,
+        summary_table=False,
+        service_days_cutoff=45,
+        missing_only=False,
+    ):
+        """
         Returns a table of client service plan statuses or a table summarizing overall plan completion.
 
         Parameters:
             just_cm (Bool): if true, only looks at clients enrolled in case management. Defaults to True
             summary_table (Bool): whether to return a summary table. Defaults to False
-            service_days_cutoff: the day threshold at which a service plan ought to be complete. Defaults to 45 
-    
+            service_days_cutoff: the day threshold at which a service plan ought to be complete. Defaults to 45
+
         Examples:
             Get a full table of ISP statuses for all clients::
 
@@ -2409,29 +2658,29 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             Get the count of case management clients missing a service plan after 60 days::
 
                 e.isp_tracker(summary_table=True, service_days_cutoff=60)
-        
+
         Note:
             ISPs - Status Tables (Individual or Grouped)
-        '''
+        """
 
         if just_cm == True:
-            prog_serv = 'service'
-            base_table = f'''select participant_id, first_name, last_name, case_managers, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
+            prog_serv = "service"
+            base_table = f"""select participant_id, first_name, last_name, case_managers, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
             (select participant_id, first_name, last_name, case_managers, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
             join 
                 (select participant_id, {prog_serv}_type, max({prog_serv}_start) as {prog_serv}_start from {self.table}
                 where {prog_serv}_type = 'case management' group by participant_id, {prog_serv}_type) st 
-            using(participant_id, {prog_serv}_type, {prog_serv}_start)) serv'''
+            using(participant_id, {prog_serv}_type, {prog_serv}_start)) serv"""
         if just_cm == False:
-            prog_serv = 'program'
-            base_table = f'''select participant_id, first_name, last_name, case_managers, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
+            prog_serv = "program"
+            base_table = f"""select participant_id, first_name, last_name, case_managers, datediff({prog_serv}_stop, {prog_serv}_start) as {prog_serv}_days from
             (select distinct participant_id, first_name, last_name, {prog_serv}_start, {prog_serv}_end, case when {prog_serv}_end is null then {self.q_t2} else {prog_serv}_end end as {prog_serv}_stop from {self.table}
             join 
                 (select participant_id, max({prog_serv}_start) as {prog_serv}_start from  {self.table}
                 group by participant_id, {prog_serv}_type) st 
-            using(participant_id, {prog_serv}_start)) serv'''
-        
-        query_to_modify = f'''
+            using(participant_id, {prog_serv}_start)) serv"""
+
+        query_to_modify = f"""
         with base as ({base_table}),
         assms as (select participant_id, assessment_date latest_assm_date, max(sum) as latest_assm_score from assess.assm
             join (select participant_id, max(assessment_date) assessment_date from assess.assm
@@ -2448,18 +2697,18 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             left join assms using(participant_id)
             left join neon.isp_tracker using(participant_id))
 
-        '''
+        """
 
         if summary_table == False:
-            missing_str = 'where total_goals is null' if missing_only else ''
-            modifier = f'''select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers,
+            missing_str = "where total_goals is null" if missing_only else ""
+            modifier = f"""select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers,
                             custody_status, {prog_serv}_days days_enrolled, latest_assm_date, latest_update, 
                             total_goals, goals_completed from big_table
                             {missing_str}
-                            '''
-        
+                            """
+
         if summary_table == True:
-            modifier = f'''
+            modifier = f"""
             ,
             elig as (select *, case when (custody_status = 'In Custody' or {prog_serv}_days <={service_days_cutoff}) or (custody_status is null and {prog_serv}_days <={service_days_cutoff}) then 'optional needs' else 'needs needs' end as eligibility
             from big_table)
@@ -2472,19 +2721,19 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             from elig
             group by eligibility
 
-            '''
-        query = query_to_modify + ' ' + modifier
+            """
+        query = query_to_modify + " " + modifier
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     @clipboard_decorator
-    def isp_discharged(self, missing_names = False):
-        '''
+    def isp_discharged(self, missing_names=False):
+        """
         Returns a table of discharged clients' service plan completion and groups percent of goals completed.
 
         Parameters:
             missing_names (Bool): whether to return a list of the clients missing an ISP. defaults to False
-        
+
         Examples::
             Get the number of discharged clients broken out by % of their service plan completed::
 
@@ -2493,25 +2742,25 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             Get a list of discharged clients with no ISPs recorded::
 
                 e.isp_discharged(missing_names=True)
-        
+
         Note:
             ISPs - Completion Rates for Discharged Clients
 
-        '''
+        """
 
-        query = f'''
+        query = f"""
         with discharged_isps as(
         select first_name, last_name, participant_id, isp_start, latest_update, total_goals, goals_completed, goals_in_progress, goals_discontinued, 
         goals_unstarted from neon.isp_tracker
         right join (select * from {self.table} where service_type = 'case management' and (service_end between {self.q_t1} and {self.q_t2} or program_end between {self.q_t1} and {self.q_t2})) o using(participant_id))
-        '''
+        """
 
         if missing_names:
-            modifier = f'''
+            modifier = f"""
             select concat(first_name, " ",left(last_name,1), ".") name, participant_id from discharged_isps where isp_start is null
-            '''
+            """
         else:
-            modifier = f'''
+            modifier = f"""
             ,
         percent_groups as (
         select participant_id, percent_goals_completed, 
@@ -2533,14 +2782,21 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             when percent_group = "0%" then 4
             else 5
             end asc
-            '''
-        query = query + ' ' + modifier
+            """
+        query = query + " " + modifier
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
-    def legal_bonanza(self, timeframe = False, case_stage = None, ranking_method = None, grouping_cols = [], wide_col = None):
-        '''
+    def legal_bonanza(
+        self,
+        timeframe=False,
+        case_stage=None,
+        ranking_method=None,
+        grouping_cols=[],
+        wide_col=None,
+    ):
+        """
         Flexible function designed to return a table of legal data.
 
 
@@ -2550,7 +2806,7 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             ranking_method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
             grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type. "Total" gives total number of cases.
             wide_col(optional): column to break results out by: 'fel_reduction' - if felony reduced, 'violent' - if case was violent, 'class_type' - if case was felony/misdemeanor
-        
+
         Hints:
             group_by column options: case_type, violent, juvenile_adult, class_prior_to_trial_plea, class_after_trial_plea, case_outcome, sentence, probation_type
             wide_col column options: violent, fel_reduction, class_type
@@ -2567,35 +2823,37 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             Get case outcomes grouped by violent status::
 
                 e.legal_bonanza(timeframe=True, case_stage='ended', grouping_cols='case_outcome', wide_col='violent')
-        
+
         Note:
             Legal - Flexible Master Function
-        '''
-        if 'a2j_' in self.table:
-            base_table = f'''with base as (
-            select * from {self.table} '''
+        """
+        if "a2j_" in self.table:
+            base_table = f"""with base as (
+            select * from {self.table} """
         else:
-            base_table = f'''with base as (
+            base_table = f"""with base as (
             select * from neon.legal_mycase
-            join (select distinct participant_id from {self.table}) n using(participant_id)'''
-        
+            join (select distinct participant_id from {self.table}) n using(participant_id)"""
+
         if timeframe is True:
             # where statement exists
             if case_stage is None:
-                addendum = f'''where (case_start is null or case_start <= {self.q_t2}) and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2}))'''
-            elif case_stage.lower() == 'started':
-                addendum = f'''where case_start between {self.q_t1} and {self.q_t2})'''
-            elif case_stage.lower() == 'ended':
-                addendum = f'''where case_outcome_date between {self.q_t1} and {self.q_t2})'''
+                addendum = f"""where (case_start is null or case_start <= {self.q_t2}) and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2}))"""
+            elif case_stage.lower() == "started":
+                addendum = f"""where case_start between {self.q_t1} and {self.q_t2})"""
+            elif case_stage.lower() == "ended":
+                addendum = (
+                    f"""where case_outcome_date between {self.q_t1} and {self.q_t2})"""
+                )
         if timeframe is False:
-            addendum = ')'
-        
-        base_table = base_table + ' ' + addendum
+            addendum = ")"
 
-        table_name = 'base'
+        base_table = base_table + " " + addendum
+
+        table_name = "base"
 
         if ranking_method:
-            ranked_tables = f'''
+            ranked_tables = f"""
             , fel_rank as (select *, case when ranking is null then 10 else ranking end better_rank from base b
             left join misc.felony_classes f on b.class_prior_to_trial_plea = f.felony),
             highest_felony as (
@@ -2620,12 +2878,14 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             join base b using(legal_id)
             where rn = 1)
             
-                '''
-            base_table = base_table + " " + ranked_tables 
+                """
+            base_table = base_table + " " + ranked_tables
             table_name = ranking_method
-        
-        #handle grouping cols
-        existing_groups = {'case_outcomes': ['case_outcome', 'sentence', 'probation_type']}
+
+        # handle grouping cols
+        existing_groups = {
+            "case_outcomes": ["case_outcome", "sentence", "probation_type"]
+        }
         if isinstance(grouping_cols, str):
             if grouping_cols in existing_groups:
                 grouping_cols = existing_groups[grouping_cols]
@@ -2638,35 +2898,41 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             count(distinct case when {wide_col} regexp 'No|Misdemeanor|remained' then mycase_id else null end) as 'not {wide_col}',
             count(distinct case when {wide_col} is null or {wide_col} like "%missing%" then mycase_id else null end) as "missing"'''
         else:
-            count_str = 'count(distinct mycase_id) as count'
+            count_str = "count(distinct mycase_id) as count"
 
-        if grouping_cols: 
-            if grouping_cols[0].lower() == 'total':
-                actual_query = f'''
+        if grouping_cols:
+            if grouping_cols[0].lower() == "total":
+                actual_query = f"""
                 
                 select count(distinct mycase_id) as total_cases
-                from {table_name}'''
-            
+                from {table_name}"""
+
             else:
-                cols = ', '.join(str(col) for col in grouping_cols)
-                actual_query = f'''
+                cols = ", ".join(str(col) for col in grouping_cols)
+                actual_query = f"""
 
                 select {cols}, {count_str}
                 from {table_name}
                 group by {cols}
-                order by {grouping_cols[0]} asc'''
+                order by {grouping_cols[0]} asc"""
         else:
-            actual_query = f'''
+            actual_query = f"""
             
-            select * from {table_name}'''
+            select * from {table_name}"""
 
-        query = base_table + ' ' + actual_query
+        query = base_table + " " + actual_query
 
         df = self.query_run(query)
-        return(df)
-    
-    def legal_bonanza_2(self, case_stage='timeframe', ranking_method=None, if_rearrest=None, grouping_cols = []):
-        '''
+        return df
+
+    def legal_bonanza_2(
+        self,
+        case_stage="timeframe",
+        ranking_method=None,
+        if_rearrest=None,
+        grouping_cols=[],
+    ):
+        """
         Revamped legal_bonanza
 
 
@@ -2676,73 +2942,84 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             ranking_method (optional): 'highest_felony' looks at a client's highest pretrial charge, 'highest_outcome' looks at a clients highest outcome. Defaults to "None"
             if_rearrest(optional, Bool): None looks at all cases. True looks at rearrests, False looks at original charges. Defaults to None
             grouping_cols (str, list): column(s) to use group_by on. The string 'case_outcomes' automatically includes case_outcome, sentence, and probation_type. "Total" gives total number of cases.
-        
+
         Hints:
             case_stage options: timeframe, active (ongoing at t2), started, closed, concluded, concluded_ever (concluded outside of timeframe)
             grouping_cols options: total (returns complete df), case_type, violent, juvenile_adult, class_prior, class_after_trial_plea, case_outcome, sentence, probation_type
         Note:
             Legal - Flexible Master Function (v2)
-        '''
+        """
         ## active cases: and case_end is null and case_stage not like 'Case Closed'
         ## all timeframe cases: and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})
         ## all started cases: and case_start between {self.q_t1} and {self.q_t2})
         ## concluded cases: and case_outcome_date between {self.q_t1} and {self.q_t2})
-        ## rearrest: and days_until_rearrest >0 
+        ## rearrest: and days_until_rearrest >0
         ### reason to have conclusions outside of timeframe? i sorta think so
 
         ## if no ranking method, count mycase_id, if ranking emthod, count participant_id
         where_dict = {
-            'timeframe': f'and ((case_outcome_date is null and (case_end is null or case_end >= {self.q_t1})) or case_outcome_date >= {self.q_t1})',
-            'active': f'and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t2})) or case_outcome_date > {self.q_t2})',
-            'closed':f'and (case_end between {self.q_t1} and {self.q_t2} or case_outcome_date between {self.q_t1} and {self.q_t2})',
-            'concluded': f'and case_outcome_date between {self.q_t1} and {self.q_t2}',
-            'concluded_ever':f'and case_outcome_date <= {self.q_t2}',
-            'started': f'and case_start between {self.q_t1} and {self.q_t2}',
-            'rearrested': 'and days_until_rearrest > 0',
-            'original_case': 'and days_until_rearrest = 0'
+            "timeframe": f"and ((case_outcome_date is null and (case_end is null or case_end >= {self.q_t1})) or case_outcome_date >= {self.q_t1})",
+            "active": f"and ((case_outcome_date is null and (case_end is null or case_end > {self.q_t2})) or case_outcome_date > {self.q_t2})",
+            "closed": f"and (case_end between {self.q_t1} and {self.q_t2} or case_outcome_date between {self.q_t1} and {self.q_t2})",
+            "concluded": f"and case_outcome_date between {self.q_t1} and {self.q_t2}",
+            "concluded_ever": f"and case_outcome_date <= {self.q_t2}",
+            "started": f"and case_start between {self.q_t1} and {self.q_t2}",
+            "rearrested": "and days_until_rearrest > 0",
+            "original_case": "and days_until_rearrest = 0",
         }
-        where_statement = ''
+        where_statement = ""
         if case_stage:
-            where_statement = where_statement + ' ' + where_dict.get(case_stage, '')
-        
+            where_statement = where_statement + " " + where_dict.get(case_stage, "")
+
         if if_rearrest is True:
-            where_statement = where_statement + ' ' + where_dict.get('rearrested', '')  
+            where_statement = where_statement + " " + where_dict.get("rearrested", "")
         if if_rearrest is False:
-            where_statement = where_statement + ' ' + where_dict.get('original_case', '')
-        
-        rank_where = ''
-        count_col = 'mycase_id'
+            where_statement = (
+                where_statement + " " + where_dict.get("original_case", "")
+            )
+
+        rank_where = ""
+        count_col = "mycase_id"
         if ranking_method:
-            if ranking_method in ['felony','outcome']:
-                rank_where = f'where {ranking_method}_ranking = 1'
-                count_col = 'participant_id'
+            if ranking_method in ["felony", "outcome"]:
+                rank_where = f"where {ranking_method}_ranking = 1"
+                count_col = "participant_id"
             else:
-                return('set ranking method to either felony or outcome')
-            
-        #handle grouping cols
-        existing_groups = {'case_outcomes': ['case_outcome', 'sentence', 'probation_type'],
-                           }
+                return "set ranking method to either felony or outcome"
+
+        # handle grouping cols
+        existing_groups = {
+            "case_outcomes": ["case_outcome", "sentence", "probation_type"],
+        }
         if isinstance(grouping_cols, str):
             if grouping_cols in existing_groups:
                 grouping_cols = existing_groups[grouping_cols]
             else:
                 grouping_cols = list(grouping_cols.split(", "))
-        
-        grouping_cols=', '.join(str(col) for col in grouping_cols)
-        final_table_select = '*'
-        final_table_group_by = ''
-        if grouping_cols:
-            if grouping_cols !='total':
-                final_table_select = f'{grouping_cols}, count(distinct {count_col}) count'
-                final_table_group_by = f'group by {grouping_cols}'
-            if 'outcome' in grouping_cols:
-                rank_where = rank_where + f"{'where' if len(rank_where) == 0 else ' and'} case_outcome is not null"
-            if grouping_cols in ['if_incarcerated','class_after_trial_plea']:
-                rank_where = rank_where + f"{'where' if len(rank_where) == 0 else ' and'} case_outcome regexp 'Guilty Plea|Found Guilty|Guilty Verdict|On probation at intake'"
-            if grouping_cols =='total':
-                final_table_select = f'count(distinct participant_id) total_clients, count(distinct mycase_id) total_cases'
 
-        query = f'''
+        grouping_cols = ", ".join(str(col) for col in grouping_cols)
+        final_table_select = "*"
+        final_table_group_by = ""
+        if grouping_cols:
+            if grouping_cols != "total":
+                final_table_select = (
+                    f"{grouping_cols}, count(distinct {count_col}) count"
+                )
+                final_table_group_by = f"group by {grouping_cols}"
+            if "outcome" in grouping_cols:
+                rank_where = (
+                    rank_where
+                    + f"{'where' if len(rank_where) == 0 else ' and'} case_outcome is not null"
+                )
+            if grouping_cols in ["if_incarcerated", "class_after_trial_plea"]:
+                rank_where = (
+                    rank_where
+                    + f"{'where' if len(rank_where) == 0 else ' and'} case_outcome regexp 'Guilty Plea|Found Guilty|Guilty Verdict|On probation at intake'"
+                )
+            if grouping_cols == "total":
+                final_table_select = f"count(distinct participant_id) total_clients, count(distinct mycase_id) total_cases"
+
+        query = f"""
         with stage_at_t2 as (select distinct mycase_id, stage_start t2_stage_start, stage case_stage_t2 from mycase.case_stages
         join
             (select mycase_id, max(stage_start) stage_start from mycase.case_stages
@@ -2793,14 +3070,13 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         select {final_table_select}
         from ranked {rank_where}
         {final_table_group_by}
-        '''
+        """
         df = self.query_run(query)
         return df
 
-
     @clipboard_decorator
-    def legal_tally(self, distinct_clients = False):
-        '''
+    def legal_tally(self, distinct_clients=False):
+        """
         Returns a total/started/ended count of cases (or clients with a case) in a timeframe.
         started is defined by case_start in MyCase, ended is a case_outcome_date in NeonOne
 
@@ -2808,11 +3084,11 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
             distinct_clients (Bool): True counts # clients, False counts #cases. Defaults to False
         Note:
             Legal - Case/Client Tally
-        '''
-        legal_table = self.table if 'a2j' in self.table else 'neon.legal_mycase'
-        tally_item = 'participant_id' if distinct_clients else 'mycase_id'
-        row_label = 'Clients' if distinct_clients else 'Cases'
-        query = f'''with all_cases as (
+        """
+        legal_table = self.table if "a2j" in self.table else "neon.legal_mycase"
+        tally_item = "participant_id" if distinct_clients else "mycase_id"
+        row_label = "Clients" if distinct_clients else "Cases"
+        query = f"""with all_cases as (
         select 'Total {row_label}', count(distinct {tally_item}) count from {legal_table} where 
         (case_start is null or case_start <= {self.q_t2}) and ((case_outcome_date is null 
         and (case_end is null or case_end > {self.q_t1})) or case_outcome_date between {self.q_t1} and {self.q_t2})),
@@ -2827,34 +3103,33 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
         union all
         select * from started_cases
         union all
-        select * from closed_cases'''
+        select * from closed_cases"""
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     @clipboard_decorator
-    def legal_rearrested(self, client_level = True):
-        '''
+    def legal_rearrested(self, client_level=True):
+        """
         Returns a count of clients who picked up new cases cumulatively and in the timeframe
 
         Parameters:
             client_level(Bool): True counts the number of clients, False counts the number of total cases. Defaults to True
-        
+
         Examples:
             Get the number of new cases picked up by clients::
 
                 e.legal_rearrested(client_level=False)
-            
+
             Get the number of clients rearrested::
 
                 e.legal_rearrested()
-        
+
         Note:
             Legal - Recidivism Rates
-        '''
+        """
 
-        distinct = 'distinct ' if client_level else ''
-        query = f'''
+        distinct = "distinct " if client_level else ""
+        query = f"""
         with base as (
         select * from neon.legal_mycase
         join (select distinct participant_id from {self.table}) n using(participant_id)
@@ -2869,40 +3144,57 @@ where notification_date between {self.q_t1} and {self.q_t2}) i
 
         select * from (select count({distinct} participant_id) as total_clients from base) b
         join (select count({distinct} participant_id) as total_rearrested, count({distinct} case when timeframe = 'Yes' then participant_id else null end) as timeframe_rearrested from rearrests) r
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-    
-    def legal_rearrested_details(self, timeframe = True, ranking_method = None, grouping_cols=None):
-        '''
+        return df
+
+    def legal_rearrested_details(
+        self, timeframe=True, ranking_method=None, grouping_cols=None
+    ):
+        """
         A more extensive look at rearrest information.
 
         Parameters:
             timeframe (Bool): only look at rearrests in timeframe. Defaults to True.
             ranking_method: 'earliest','latest', or 'felony' for highest felony
             grouping_cols: list containing any of case_type, charge_level, violent, time_before_rearrest, time_since_rearrest
-        
+
         Examples:
             Get the number of new cases picked up by clients::
 
                 e.legal_rearrested(client_level=False)
-            
+
             Get the number of clients rearrested::
 
                 e.legal_rearrested()
-        
+
         Note:
             Legal - Recidivism Details
-        '''
-        where_ranking = f'{ranking_method}_ranking = 1' if ranking_method else None
-        where_timeframe = 'timeframe = 1' if timeframe else None
-        
-        where_statement = "where " + " and ".join(filter(None, [where_ranking, where_timeframe])) if where_ranking or where_timeframe else ''
-        grouping_cols = [grouping_cols] if isinstance(grouping_cols, str) else grouping_cols
-        select_cols = ', '.join(grouping_cols) if grouping_cols else None
-        order_by_cols = ', '.join([f"case when {item} = 'Missing' then 2 when {item} = 'Other' then 1 else 0 end asc" for item in grouping_cols]) if grouping_cols else None
+        """
+        where_ranking = f"{ranking_method}_ranking = 1" if ranking_method else None
+        where_timeframe = "timeframe = 1" if timeframe else None
 
-        query = f'''
+        where_statement = (
+            "where " + " and ".join(filter(None, [where_ranking, where_timeframe]))
+            if where_ranking or where_timeframe
+            else ""
+        )
+        grouping_cols = (
+            [grouping_cols] if isinstance(grouping_cols, str) else grouping_cols
+        )
+        select_cols = ", ".join(grouping_cols) if grouping_cols else None
+        order_by_cols = (
+            ", ".join(
+                [
+                    f"case when {item} = 'Missing' then 2 when {item} = 'Other' then 1 else 0 end asc"
+                    for item in grouping_cols
+                ]
+            )
+            if grouping_cols
+            else None
+        )
+
+        query = f"""
 with base as (
         select * from neon.legal_mycase
         join (select distinct participant_id from {self.table}) n using(participant_id)
@@ -2951,28 +3243,31 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
 {where_statement}
 {('group by ' + select_cols) if select_cols else ''}
 {('order by ' + order_by_cols if order_by_cols else '')}
-'''
+"""
         df = self.query_run(query)
-        
+
         if grouping_cols:
             if len(grouping_cols) > 1:
-                df = df.pivot_table(index=grouping_cols[:-1], columns=grouping_cols[-1],values='count',fill_value=0)
-                df['Total'] = df.sum(axis=1, numeric_only=True)
-                #df.loc["Total"] = df.sum(axis=0, numeric_only=True)
-                df.loc['Total', :] = df.sum(axis=0, numeric_only=True).values
-                #df = df.reset_index()
+                df = df.pivot_table(
+                    index=grouping_cols[:-1],
+                    columns=grouping_cols[-1],
+                    values="count",
+                    fill_value=0,
+                )
+                df["Total"] = df.sum(axis=1, numeric_only=True)
+                # df.loc["Total"] = df.sum(axis=0, numeric_only=True)
+                df.loc["Total", :] = df.sum(axis=0, numeric_only=True).values
+                # df = df.reset_index()
             else:
                 df.loc["Total"] = df.sum(axis=0, numeric_only=True)
-                df.loc['Total',grouping_cols[0]] = 'Total'
+                df.loc["Total", grouping_cols[0]] = "Total"
                 df = df.reset_index(drop=True)
-            
-        
-        return(df)
 
+        return df
 
     @clipboard_decorator
-    def legal_rjcc(self, client_level = True,timeframe = True):
-        '''
+    def legal_rjcc(self, client_level=True, timeframe=True):
+        """
         Returns a count of clients enrolled in RJCC (according to MyCase), and a tally of case outcomes
 
         Parameters:
@@ -2983,19 +3278,27 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
             Get RJCC cases ended in timeframe::
 
                 e.legal_rjcc(client_level=False)
-            
+
             Get the number of clients who completed RJCC::
 
                 e.legal_rjcc()
-        
+
         Note:
             Legal - RJCC Enrollment in MyCase
-        '''
-        base_where = f"and (stage_end is null or stage_end >= {self.q_t1}) and stage_start <= {self.q_t2}" if not timeframe else ''
-        final_where = f'where case_outcome_date is null or case_outcome_date >= {self.q_t1}' if not timeframe else ''
-        distinct = 'distinct' if client_level else ''
+        """
+        base_where = (
+            f"and (stage_end is null or stage_end >= {self.q_t1}) and stage_start <= {self.q_t2}"
+            if not timeframe
+            else ""
+        )
+        final_where = (
+            f"where case_outcome_date is null or case_outcome_date >= {self.q_t1}"
+            if not timeframe
+            else ""
+        )
+        distinct = "distinct" if client_level else ""
 
-        query = f'''
+        query = f"""
         with rjcc_base as(select * from mycase.case_stages
         join {self.table} using(participant_id)
         left join neon.legal_mycase using(participant_id, mycase_id, legal_id, mycase_name, case_id)
@@ -3008,37 +3311,45 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
         count({distinct} case when case_outcome not like "%dismissed%" and case_outcome_date <= {self.q_t2} then participant_id else null end) as unsuccessfully_completed
         from rjcc_base
         {final_where}
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     def linkages_edu_completed(self):
-        '''
+        """
         Returns completed education linkages in timeframe
 
         Note:
             Linkages - Completed Education Linkages in Timeframe
-        '''
-        query = f'''select participant_id, linkage_org, comments from neon.linkages
+        """
+        query = f"""select participant_id, linkage_org, comments from neon.linkages
         join (select distinct participant_id from  {self.table}) n using(participant_id)
         where linkage_type regexp 'education.*' and end_date between {self.q_t1} and {self.q_t2} and end_status = 'Successfully Completed';
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     @clipboard_decorator
-    def linkages_edu_employ(self, just_cm = True,first_n_months = None, ongoing = False, age_threshold = 18, new_client_threshold = 45, include_wfd = True):
-        '''
-        Counts the number of clients enrolled/employed by age group. 
+    def linkages_edu_employ(
+        self,
+        just_cm=True,
+        first_n_months=None,
+        ongoing=False,
+        age_threshold=18,
+        new_client_threshold=45,
+        include_wfd=True,
+    ):
+        """
+        Counts the number of clients enrolled/employed by age group.
 
         Parameters:
             just_cm (Bool): Whether to only include clients enrolled in case management. Defaults to True
             first_n_months (optional, int): Only counts linkages in the first N months of program enrollment, usually 6 or 9. Defaults to None
             ongoing (Bool): Only include linkages with no end date. Defaults to False
             age_threshold (int): inclusive upper bound for 'school-aged' clients. Defaults to 18
-            new_client_threshold (int): number of days required to be considered "continuing" 
+            new_client_threshold (int): number of days required to be considered "continuing"
             include_wfd (Bool): whether to count workforce development linkages as employment. Defaults to True.
-        
+
         Examples:
             Get the number of case management clients enrolled/employed in their first 9 months::
 
@@ -3047,24 +3358,28 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
             Get the number of clients currently enrolled/employed with an age cutoff of 19::
 
                 e.linkages_edu_employ(just_cm=False, ongoing=True, age_threshold=19)
-            
+
             Get the number of case management clients enrolled/employed excluding workforce development linkages::
 
                 e.linkages_edu_employ(include_wfd=False)
-            
+
             Get the number of case management clients enrolled/employed after nine months::
 
                 e.linkages_edu_employ(new_client_threshold = 275)
-        
+
         Note:
             Linkages - Big Education and Employment Table
-        '''
+        """
 
-        workforce = '|Workforce Development' if include_wfd else ''
-        start_date = 'service_start' if just_cm else 'program_start'
+        workforce = "|Workforce Development" if include_wfd else ""
+        start_date = "service_start" if just_cm else "program_start"
         if first_n_months:
-            new_client_threshold = int(first_n_months * 30.5) if new_client_threshold == 45 else new_client_threshold
-        query = f'''
+            new_client_threshold = (
+                int(first_n_months * 30.5)
+                if new_client_threshold == 45
+                else new_client_threshold
+            )
+        query = f"""
         with part as (
         select participant_id, 
         case when timestampdiff(year, birth_date, {start_date}) <= {age_threshold} then 'juvenile' when timestampdiff(year, birth_date, {start_date}) > {age_threshold} then 'adult' else 'missing' end as age_group, 
@@ -3111,30 +3426,36 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
         from link_base
         group by age_group, newness, custody_status
         order by custody_status asc, newness asc
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def linkages_edu_employ_new(self, cm_only = False):
-        '''
+    def linkages_edu_employ_new(self, cm_only=False):
+        """
         Returns new education/employment linkages in timeframe
 
         Note:
             Linkages - New Education and Employment Connections
-        '''
-        query = f'''select linkage_type, count(distinct participant_id) participants from neon.linkages
+        """
+        query = f"""select linkage_type, count(distinct participant_id) participants from neon.linkages
         join (select distinct participant_id from {self.table}
             {f"where service_type = 'Case Management'" if cm_only else ''}) n using(participant_id)
         where linkage_type regexp 'education.*|employ.*|work.*' and start_date between {self.q_t1} and {self.q_t2}
-        group by linkage_type'''
+        group by linkage_type"""
 
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def linkages_isp_goals(self, lclc_initiated = True, timeframe = False, discharged_only = False, idhs_edu_employ = False):
-        '''
-        Returns a table of the number of clients with an active, concluded, or unstarted linkage for an ISP goal domain. Also has a row for # of clients who have a linkage for at least one goal  
-        
+    def linkages_isp_goals(
+        self,
+        lclc_initiated=True,
+        timeframe=False,
+        discharged_only=False,
+        idhs_edu_employ=False,
+    ):
+        """
+        Returns a table of the number of clients with an active, concluded, or unstarted linkage for an ISP goal domain. Also has a row for # of clients who have a linkage for at least one goal
+
         Parameters:
             lclc_initiated: only include non-client-initiated linkages. Defaults to True
             timeframe: only include linkages made in the timeframe. Defaults to False
@@ -3143,9 +3464,9 @@ select {(select_cols + ', count(participant_id) count') if select_cols else '*'}
 
         Note:
             Linkages - Connections by ISP Goal Area
-        '''
+        """
 
-        query = f'''
+        query = f"""
         with goal_key as(select distinct goal_domain,
   case when goal_domain regexp 'education.*|.*school' then concat('education.*|',goal_domain)
   when goal_domain like 'employment' then concat('employment.*|workforce.*{'education.*|' if idhs_edu_employ else ''}|',goal_domain)
@@ -3238,14 +3559,14 @@ select goal_domain, total_participants,
 from (select * from total_row 
       union all
       select * from grouped_linkage_counts) t
-        '''
+        """
 
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     @clipboard_decorator
-    def linkages_monthly(self, lclc_initiated = True, just_cm = False):
-        '''
+    def linkages_monthly(self, lclc_initiated=True, just_cm=False):
+        """
         Counts the number of clients linked in the current time frame, and in their first 3/6/9 months
 
         Parameters:
@@ -3254,27 +3575,28 @@ from (select * from total_row
 
         Examples::
             Get the number of case management clients with lclc-initiated linkages in the current time period and their first 3/6/9 months::
-            
+
                 e.linkages_monthly()
 
             Get the number of all clients with linkages in the time period::
 
                 e.linkages_monthly(just_cm=True)
-            
+
             Get the number of case management clients with linkages in the time periods, including client-initiated linkages::
 
                 e.linkages_monthly(lclc_initiated=False)
-        
+
         Note:
             Linkages - Number of Clients Linked in Time Period
-        '''
+        """
 
+        service_statement = "where service_type = 'case management'" if just_cm else ""
+        initiated_statement = (
+            "and client_initiated = 'LCLC Staff'" if lclc_initiated else ""
+        )
+        prog_serv_start = "service" if just_cm else "program"
 
-        service_statement = "where service_type = 'case management'" if just_cm else ''
-        initiated_statement = "and client_initiated = 'LCLC Staff'" if lclc_initiated else ''
-        prog_serv_start = 'service' if just_cm else 'program'
-        
-        query = f'''with parts as  (select distinct(participant_id), {prog_serv_start}_start,
+        query = f"""with parts as  (select distinct(participant_id), {prog_serv_start}_start,
          case when datediff(current_date(), {prog_serv_start}_start) > 90 then 'cont' else 'new' end client_status,
          case when custody_status like 'in custody' then 'Yes' else 'No' end 'if_incarcerated'
           from {self.table}
@@ -3300,23 +3622,22 @@ from (select * from total_row
         count(case when this_month > 0 then participant_id else null end) as this_month
         from parts
         left join recent_links using(participant_id)
-        group by client_status, if_incarcerated'''
+        group by client_status, if_incarcerated"""
         df = self.query_run(query)
-        return(df)
-   
-   
+        return df
+
     @clipboard_decorator
     def linkages_high_pcl(self, min_score=31):
-        '''
+        """
         Get percent of clients with a high PCL score who had a subsequent mental health linkage
-        
+
         Parameters:
             min_score: High PCL score threshold. Defaults to 31
 
         Note:
             Linkages - Percent of High PTSD Screener Clients with a Mental Health Connection
-        '''  
-        query = f'''
+        """
+        query = f"""
 with part as (select participant_id, min(assessment_date) assessment_date from assess.cm_long
 where participant_id in(select distinct participant_id from {self.table}) and assessment_type = 'PCL' and score >= {min_score}
 group by participant_id),
@@ -3331,14 +3652,15 @@ select
   (select count(participant_id) from part) num_eligible,
   (select count(participant_id) from w_links) num_linked,
   (select count(participant_id) from w_links)/(select count(participant_id) from part) pct_linked
-'''
+"""
         df = self.query_run(query)
-        return(df)
-    
+        return df
 
     @clipboard_decorator
-    def linkages_percent(self, timeframe = True, new_client_threshold = 45, cm_only = True, first_n_months = None):
-        '''
+    def linkages_percent(
+        self, timeframe=True, new_client_threshold=45, cm_only=True, first_n_months=None
+    ):
+        """
         Get percent of clients with linkage, broken out by custody/newness
 
         Parameters:
@@ -3346,15 +3668,21 @@ select
             new_client_threshold (int): number of days required to be considered "continuing". Defaults to 45
             cm_only (Bool): Only count case management clients. Defaults to True
             first_n_months (int): only count linkages received in a clients first N months. Defaults to None
-        
+
         Note:
             Linkages - Percent of Clients with a Connection
-        '''
-        timeframe_statement = f'and linked_date between {self.q_t1} and {self.q_t2}' if timeframe else ''
-        cm_only_statement = "where service_type = 'Case Management'" if cm_only else ''
-        first_n_months_statement = f"and (datediff(linked_date, service_start) <= 30.5*{first_n_months})" if first_n_months else ''
+        """
+        timeframe_statement = (
+            f"and linked_date between {self.q_t1} and {self.q_t2}" if timeframe else ""
+        )
+        cm_only_statement = "where service_type = 'Case Management'" if cm_only else ""
+        first_n_months_statement = (
+            f"and (datediff(linked_date, service_start) <= 30.5*{first_n_months})"
+            if first_n_months
+            else ""
+        )
 
-        query = f'''
+        query = f"""
         with part as (
         select participant_id, age, program_start, service_start,case when datediff({self.q_t2}, service_start) > {new_client_threshold} then 'cont' else 'new' end as newness
         from {self.table}
@@ -3383,16 +3711,29 @@ select
         select *, linked_clients/total_clients linked_percentage from
         (select newness, custody_status, count(distinct participant_id) total_clients, 
         count(distinct case when link_count is not null then participant_id end) linked_clients from link_base
-        group by newness, custody_status) s'''
+        group by newness, custody_status) s"""
 
         df = self.query_run(query)
-        df = df.reset_index(drop=True).sort_values(by=['linked_percentage'], ascending=False)
-        df['linked_percentage'] = df['linked_percentage'].apply(lambda x: "{:.2f}%".format(x * 100))
-        return(df)
+        df = df.reset_index(drop=True).sort_values(
+            by=["linked_percentage"], ascending=False
+        )
+        df["linked_percentage"] = df["linked_percentage"].apply(
+            lambda x: "{:.2f}%".format(x * 100)
+        )
+        return df
 
     @clipboard_decorator
-    def linkages_tally(self, lclc_initiated = True, just_cm = False, timeframe = True, distinct_clients = False, group_by = 'linkage_type',link_started = False, link_ongoing = False):
-        '''
+    def linkages_tally(
+        self,
+        lclc_initiated=True,
+        just_cm=False,
+        timeframe=True,
+        distinct_clients=False,
+        group_by="linkage_type",
+        link_started=False,
+        link_ongoing=False,
+    ):
+        """
         Flexible function designed to return linkage information grouped in some way
 
 
@@ -3407,33 +3748,42 @@ select
 
         Examples:
             Get the types of linkages recorded for all clients in the timeframe::
-                
+
                 e.linkages_tally()
-            
+
             Get the number of case management clients with an internal/external linkage at any time::
-            
+
                 e.linkages_tally(just_cm=True, timeframe=False, distinct_clients=True, group_by='internal_external')
-            
+
             Get the number of clients with a started linkage of each type in the timeframe::
 
                 e.linkages_tally(distinct_clients=True, link_started=True)
-            
+
             Get the number of clients linked to organizations at any time, with the linkage currently ongoing::
 
                 e.linkages_tally(distinct_clients=True, group_by='linkage_org', link_started=True, link_ongoing=True)
-        
+
         Note:
             Linkages - Flexible Master Function
-        '''
+        """
 
-        service_statement = "where service_type = 'case management'" if just_cm else ''
-        initiated_statement = "and client_initiated = 'LCLC Staff'" if lclc_initiated else ''
-        
-        parameters_list = [f'linked_date between {self.q_t1} and {self.q_t2}' if timeframe else None, 
-                    'start_date is not null' if link_started else None, 'end_date is null' if link_ongoing else None]
-        better_parameters = 'where ' + ' and '.join(filter(None, parameters_list)) if any(parameters_list) else ''
+        service_statement = "where service_type = 'case management'" if just_cm else ""
+        initiated_statement = (
+            "and client_initiated = 'LCLC Staff'" if lclc_initiated else ""
+        )
 
-        query = f'''with parts as  (select distinct(participant_id) from {self.table}
+        parameters_list = [
+            f"linked_date between {self.q_t1} and {self.q_t2}" if timeframe else None,
+            "start_date is not null" if link_started else None,
+            "end_date is null" if link_ongoing else None,
+        ]
+        better_parameters = (
+            "where " + " and ".join(filter(None, parameters_list))
+            if any(parameters_list)
+            else ""
+        )
+
+        query = f"""with parts as  (select distinct(participant_id) from {self.table}
         {service_statement}),
    base as (select *, timestampdiff(month, stint_start, linked_date) month_diff, timestampdiff(month, linked_date, {self.q_t2}) recent_diff from neon.linkages
         join parts using(participant_id)
@@ -3447,14 +3797,21 @@ select
         select {group_by}, count({'distinct ' if distinct_clients else ''}participant_id) count
         from better_base
         {f'group by {group_by}' if group_by else ''}
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     @clipboard_decorator
-    def linkages_total(self, lclc_initiated = True, just_cm = False, timeframe = True, distinct_clients = False, link_started = False, link_ongoing = False):
-        '''
+    def linkages_total(
+        self,
+        lclc_initiated=True,
+        just_cm=False,
+        timeframe=True,
+        distinct_clients=False,
+        link_started=False,
+        link_ongoing=False,
+    ):
+        """
         Returns the total count of participants linked/linkages made
 
 
@@ -3468,16 +3825,22 @@ select
 
         Note:
             Linkages - Total Connections Made
-        '''
-        service_statement = "where service_type = 'case management'" if just_cm else ''
-        
-        parameters_list = [f'linked_date between {self.q_t1} and {self.q_t2}' if timeframe else None, 
-                    'start_date is not null' if link_started else None, 
-                    'end_date is null' if link_ongoing else None,
-                    'client_initiated = "LCLC Staff"' if lclc_initiated else None]
-        better_parameters = 'where ' + ' and '.join(filter(None, parameters_list)) if any(parameters_list) else ''
+        """
+        service_statement = "where service_type = 'case management'" if just_cm else ""
 
-        query = f'''with parts as  (select distinct(participant_id) from {self.table}
+        parameters_list = [
+            f"linked_date between {self.q_t1} and {self.q_t2}" if timeframe else None,
+            "start_date is not null" if link_started else None,
+            "end_date is null" if link_ongoing else None,
+            'client_initiated = "LCLC Staff"' if lclc_initiated else None,
+        ]
+        better_parameters = (
+            "where " + " and ".join(filter(None, parameters_list))
+            if any(parameters_list)
+            else ""
+        )
+
+        query = f"""with parts as  (select distinct(participant_id) from {self.table}
         {service_statement}),
         links as (select * from neon.linkages
         join parts using(participant_id)
@@ -3485,21 +3848,20 @@ select
 
         select {f"'total' {'participants' if distinct_clients else 'linkages'}"}, count(distinct {'participant_id' if distinct_clients else 'linkage_id'}) count
         from links
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     @clipboard_decorator
     def outreach_canvassing(self):
-        '''
+        """
         Counts the total canvassing sessions/hours in the timeframe, with rows for distinct sessions and per-staff contributions
 
         Note:
             Outreach - Canvassing Totals
-        '''
-    
-        query = f'''
+        """
+
+        query = f"""
         with base as (select *, LENGTH(staff_present) - LENGTH(REPLACE(staff_present, ',', '')) + 1 num_staff from neon.outreach_canvassing
 where activity_name like '%canvassing%' and attendance_date between {self.q_t1} and {self.q_t2})
 
@@ -3508,17 +3870,16 @@ from base
 union all
 select "Across Staff Members", sum(num_staff), sum(total_hours * num_staff)
 from base
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     @clipboard_decorator
-    def outreach_elig_tally(self, outreach_only = True, new_clients = False):
-        '''
+    def outreach_elig_tally(self, outreach_only=True, new_clients=False):
+        """
         Counts the number of clients with outreach eligibility forms, and the number who answered yes to each question
 
-        Parameters: 
+        Parameters:
             outreach_only (Bool): Only include clients currently in outreach. Defaults to True
             new_clients (Bool): Only include new clients. Defaults to False
 
@@ -3526,23 +3887,30 @@ from base
             Get the number of new outreach clients with eligibility screenings/number of "yes"es for each question::
 
                 e.outreach_elig_tally(new_clients=True)
-            
+
             Get the number of all clients with eligibility screenings//number of "yes"es for each question::
 
                 e.outreach_elig_tally(outreach_only=False)
-        
+
         Note:
             Outreach - Eligibility Form Responses
-        '''
-        where_statement = f'''where service_type = 'outreach''' if outreach_only else ''
-        where_statement = f'''where program_start between {self.q_t1} and {self.q_t2} and program_type regexp "chd.*|community navigation.*|violence.*"''' if new_clients else ''
+        """
+        where_statement = f"""where service_type = 'outreach""" if outreach_only else ""
+        where_statement = (
+            f'''where program_start between {self.q_t1} and {self.q_t2} and program_type regexp "chd.*|community navigation.*|violence.*"'''
+            if new_clients
+            else ""
+        )
 
+        if new_clients and outreach_only:
+            where_statement = f"""where service_type = 'outreach' and service_start between {self.q_t1} and {self.q_t2}"""
 
-        if new_clients and outreach_only: 
-            where_statement = f'''where service_type = 'outreach' and service_start between {self.q_t1} and {self.q_t2}'''
-
-        new = f'''and service_start between {self.q_t1} and {self.q_t2}''' if new_clients else ''
-        query = f'''
+        new = (
+            f"""and service_start between {self.q_t1} and {self.q_t2}"""
+            if new_clients
+            else ""
+        )
+        query = f"""
         select count(distinct participant_id) Total,
         count(distinct case when ASI = 'yes' then participant_id else null end) ASI,
         count(distinct case when JSI = 'yes' then participant_id else null end) JSI,
@@ -3558,17 +3926,17 @@ from base
         join (select participant_id, max(assessment_date) assessment_date from assess.outreach_eligibility
         group by participant_id) o using(participant_id, assessment_date)
         join(select distinct participant_id from {self.table} {where_statement}) s using(participant_id)
-        '''
+        """
         df = self.query_run(query)
         return df
-    
+
     def outreach_elig_factors(self, outreach_only=True, new_clients=False):
-        '''
-        Counts the number of clients with outreach eligibility forms, and the risk factor areas 
+        """
+        Counts the number of clients with outreach eligibility forms, and the risk factor areas
         (violent/aggressive behavior, victim of violence, active street, and justice system involvement)
         each client responded yes to
 
-        Parameters: 
+        Parameters:
             outreach_only (Bool): Only include clients currently in outreach. Defaults to True
             new_clients (Bool): Only include new clients. Defaults to False
 
@@ -3576,23 +3944,26 @@ from base
             Get the number of new outreach clients with eligibility screenings and their dimensions::
 
                 e.outreach_elig_tally(new_clients=True)
-            
+
             Get the number of all clients with eligibility screenings//number of "yes"es for each question::
 
                 e.outreach_elig_tally(outreach_only=False)
-        
+
         Note:
             Outreach - Eligibility Form Responses
-        '''
-        
-        where_statement = f'''where service_type = 'outreach''' if outreach_only else ''
-        where_statement = f'''where program_start between {self.q_t1} and {self.q_t2} and program_type regexp "chd.*|community navigation.*|violence.*"''' if new_clients else ''
+        """
 
+        where_statement = f"""where service_type = 'outreach""" if outreach_only else ""
+        where_statement = (
+            f'''where program_start between {self.q_t1} and {self.q_t2} and program_type regexp "chd.*|community navigation.*|violence.*"'''
+            if new_clients
+            else ""
+        )
 
-        if new_clients and outreach_only: 
-            where_statement = f'''where service_type = 'outreach' and service_start between {self.q_t1} and {self.q_t2}'''
+        if new_clients and outreach_only:
+            where_statement = f"""where service_type = 'outreach' and service_start between {self.q_t1} and {self.q_t2}"""
 
-        query = f'''
+        query = f"""
         with base as (select participant_id, assessment_date,
     (case when asi='yes' or fasi='yes' then 1 else 0 end) street_involvement,
     case when vab='yes' then 1 else 0 end violent_behavior,
@@ -3632,79 +4003,86 @@ from base
     select concat('Total Factors: ', risk_dimensions), count(distinct participant_id) from all_base
     group by risk_dimensions
     union all
-    select 'Total Assessed', count(distinct participant_id) from all_base) bb'''
+    select 'Total Assessed', count(distinct participant_id) from all_base) bb"""
         df = self.query_run(query)
         return df
 
-    
     @clipboard_decorator
-    def mediation_info(self,timeframe=True):
-        '''
+    def mediation_info(self, timeframe=True):
+        """
         Returns dataframe of mediation information
 
         Parameters:
             timeframe (Bool): Whether to only include mediations in the timeframe. Defaults to True
-        
+
         Note:
             Mediations/Critical Incidents - All Information
-        '''
-        timeframe_str = f'where mediation_start between {self.q_t1} and {self.q_t2}' if timeframe else ''
-        query = f'''
+        """
+        timeframe_str = (
+            f"where mediation_start between {self.q_t1} and {self.q_t2}"
+            if timeframe
+            else ""
+        )
+        query = f"""
         select mediation_id, mediation_start, conflict_reason, conflict_how_hear, mediation_outcome, num_hours_spent, comments
         from neon.mediations
         {timeframe_str}
-        '''
+        """
         df = self.query_run(query)
         return df
-    
+
     @clipboard_decorator
-    def mediation_tally(self,timeframe=True):
-        '''
+    def mediation_tally(self, timeframe=True):
+        """
         Counts mediations
 
         Parameters:
             timeframe (Bool): Whether to only include mediations in the timeframe. Defaults to True
-        
+
         Note:
             Mediations/Critical Incidents - Count
-        '''
+        """
 
-        ''''''
-        timeframe_statement = f"""where mediation_start between {self.q_t1} and {self.q_t2}"""  if timeframe else ''
-        query = f'''select mediation_outcome, count(mediation_id) count
+        """"""
+        timeframe_statement = (
+            f"""where mediation_start between {self.q_t1} and {self.q_t2}"""
+            if timeframe
+            else ""
+        )
+        query = f"""select mediation_outcome, count(mediation_id) count
         from neon.mediations 
         {timeframe_statement} 
         group by mediation_outcome
-        '''
+        """
         df = self.query_run(query)
 
         return df
 
     @clipboard_decorator
-    def session_tally(self, session_type = 'Case Management', distinct_participants=True):
-        '''
+    def session_tally(self, session_type="Case Management", distinct_participants=True):
+        """
         Tallies the number of sessions, or number of clients in the timeframe
 
         Parameters:
             session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
             distinct_participants (Bool): True counts the number of clients, False counts the number of sessions. Defaults to True
-        
+
         Examples:
             Get the number of clients with a case management session in the timeframe::
 
                 e.session_tally()
-            
+
             Get the number of outreach sessions in the timeframe::
 
                 e.session_tally(session_type='Outreach', distinct_participants=False)
-        
+
         Note:
             Case Sessions - CM or Outreach Session Tally
-        '''
+        """
 
         session_type = f"'{session_type}'"
-        distinct = 'distinct' if distinct_participants else ''
-        query = f'''
+        distinct = "distinct" if distinct_participants else ""
+        query = f"""
         with parts as (
         select distinct(participant_id) from {self.table}
         where service_type like {session_type})
@@ -3714,22 +4092,23 @@ from base
         count({distinct} case when (session_date between {self.q_t1} and {self.q_t2}) and successful_contact = 'yes' then participant_id end) as successful_sessions
         from parts
         left join (select * from neon.case_sessions where contact_type like {session_type}) c using(participant_id);
-        '''
+        """
         df = self.query_run(query).T
-        return(df)
+        return df
+
     @clipboard_decorator
-    def session_avg_time_per_client(self, session_type = 'Case Management'):
-        '''
-        Finds the average time spent in sessions per client in a timeframe. 
-        
+    def session_avg_time_per_client(self, session_type="Case Management"):
+        """
+        Finds the average time spent in sessions per client in a timeframe.
+
         Parameters:
             session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
-        
+
         Note:
             Case Sessions - Average Time Spent in Sessions
-        '''
+        """
         session_type = f"'{session_type}'"
-        query = f'''
+        query = f"""
 with sess as (select * from neon.case_sessions where session_date between {self.q_t1} and {self.q_t2} and contact_type = {session_type}),
 parts as (select distinct participant_id from {self.table} where service_type = {session_type})
 
@@ -3739,34 +4118,33 @@ select sum(total_minutes) total_minutes,count(distinct participant_id) total_cli
   round(sum(total_minutes)/count(distinct case when contact_type is not null then participant_id end), 1) avg_minutes_w_session
   from parts
 left join sess using(participant_id)        
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     @clipboard_decorator
-    def session_frequency(self, session_type = 'Case Management'):
-        '''
-        Calculates the regularity of client sessions. 
+    def session_frequency(self, session_type="Case Management"):
+        """
+        Calculates the regularity of client sessions.
 
         Parameters:
             session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
-        
+
         Examples:
             Get the session regularity of case management clients::
-                
+
                 e.session_frequency()
-            
+
             Get the session regularity of outreach clients::
 
                 e.session_frequency(session_type="Outreach")
-        
+
         Note:
             Case Sessions - CM or Outreach Session Frequency
-        '''
+        """
 
         session_type = f"'{session_type}'"
-        query = f'''
+        query = f"""
         with datez as (select *, datediff(service_end, service_start) as case_length from 
         (select participant_id, service_start, case when (service_end is null or service_end > {self.q_t2}) then {self.q_t2} else service_end end as service_end from {self.table}
         where service_type = {session_type}) cm),
@@ -3797,21 +4175,21 @@ left join sess using(participant_id)
         when session_rate = 'less than every two months' then 5
         else 6
         end asc
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-    
-    def session_time_per_topic(self, session_type = 'Case Management'):
-        '''
+        return df
+
+    def session_time_per_topic(self, session_type="Case Management"):
+        """
         For each focus of contact, returns the number of clients who discussed the topic, and the sum of all time spent in associated sessions within the timeframe.
-        
+
         Parameters:
             session_type: the type of session to count. Defaults to 'Case Management', but could also be 'Outreach'
-        
+
         Note:
             Case Sessions - Client/Time Totals per Focus of Contact
-        '''
-        query = f'''
+        """
+        query = f"""
 with sess as(select participant_id, focus_contact, contact_type, total_minutes, description from neon.case_sessions
             join (select distinct participant_id from participants.jac where service_type = '{session_type}') i using(participant_id)
             where (session_date between {self.q_t1} and {self.q_t2}) and successful_contact = 'Yes' and focus_contact is not null),
@@ -3837,17 +4215,26 @@ with sess as(select participant_id, focus_contact, contact_type, total_minutes, 
   round(sum((total_minutes)/60),1) hours_spent from separated
 group by separated_focus
 order by hours_spent desc
-'''
+"""
         df = self.query_run(query)
-        return(df)
+        return df
 
 
 class ReferralAsks(Queries):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
+    def __init__(
+        self,
+        t1,
+        t2,
+        engine,
+        print_SQL=True,
+        clipboard=False,
+        default_table="stints.neon",
+        mycase=True,
+    ):
         super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
-    
-    def highest_cases(self, attorneys = False):
-        '''
+
+    def highest_cases(self, attorneys=False):
+        """
         Finds the number of cases for each felony class by team
 
         Parameters:
@@ -3855,17 +4242,17 @@ class ReferralAsks(Queries):
 
         Examples:
             Get the number cases for each team broken out by highest charge per client::
-                
+
                 e.highest_cases()
-            
+
             Get the number cases for each attorney broken out by highest charge per client::
 
                 e.highest_cases()
-        '''
+        """
 
-        group_by = 'attorneys' if attorneys else 'participant_team'
+        group_by = "attorneys" if attorneys else "participant_team"
 
-        query = f'''with base as (
+        query = f"""with base as (
         select * from neon.legal_mycase
         join (select distinct participant_id from {self.table}) n using(participant_id) where (case_start is null or case_start <= {self.q_t2}) and (case_outcome_date is null or case_outcome_date >= {self.q_t1})) 
             , fel_rank as (select *, case when ranking is null then 10 else ranking end better_rank from base b
@@ -3901,22 +4288,22 @@ class ReferralAsks(Queries):
         count(distinct case when class_prior_to_trial_plea = 'Misdemeanor A' then mycase_id else null end) as 'Misdemeanor A',
         count(distinct mycase_id) "Total"
         from highest_felony
-        ;'''
+        ;"""
 
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     def cm_closures(self):
-        '''
+        """
         Returns the number of closed clients in the timeframe for each case manager
 
         Example:
             Get the number of case management closures in the timeframe::
 
                 e.cm_closures()
-        '''
-        
-        query = f'''with staff_refs as (select participant_id, full_name, 
+        """
+
+        query = f"""with staff_refs as (select participant_id, full_name, 
         case when a.staff_type like 'outreach%' then 'outreach'
         when a.staff_type like 'case%' then 'case management'
         when a.staff_type like '%attorney%' then 'legal'
@@ -3926,75 +4313,88 @@ class ReferralAsks(Queries):
         select full_name as staff_name, count(distinct participant_id) as closed_clients from neon.big_psg
         left join staff_refs using(participant_id, service_type)
         where service_end > {self.q_t1} and service_type = 'Case Management'
-        group by full_name'''
+        group by full_name"""
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     def cpic_summary(self):
-        '''
+        """
         Returns a summary of CPIC notifications in the timeframe
 
         Example:
             Get a CPIC notification summary::
 
                 e.cm_closures()
-        '''
+        """
 
-        query = f'''select incident_date, time_notification time_of_notification, did_staff_respond, how_hear, how_notified, num_individuals, num_living, num_deceased, 
+        query = f"""select incident_date, time_notification time_of_notification, did_staff_respond, how_hear, how_notified, num_individuals, num_living, num_deceased, 
         retaliation_future as future_retaliation_potential, comments
         from neon.critical_incidents
-        where notification_date between {self.q_t1} and {self.q_t2}'''
+        where notification_date between {self.q_t1} and {self.q_t2}"""
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     def missing_isp(self):
-        '''
+        """
         Returns a table of clients missing an ISP
 
         Example:
             Get a table of ISP-less clients::
 
                 e.missing_isp()
-        '''
-        query = f'''select participant_id, first_name, last_name, case_manager, cm_start, linkage_count, latest_linkage, isp_start from neon.cm_summary
+        """
+        query = f"""select participant_id, first_name, last_name, case_manager, cm_start, linkage_count, latest_linkage, isp_start from neon.cm_summary
         join (select distinct participant_id from {self.table} where program_end is null and service_end is null) s using(participant_id)
         where isp_update is null
-        order by linkage_count desc'''
+        order by linkage_count desc"""
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def last_30_days(self, successful_sessions = True):
-        '''
+    def last_30_days(self, successful_sessions=True):
+        """
         Returns a table of clients without a session in the last 30 days
 
         Parameters:
             successful_sessions (Bool): Only include sessions where contact was successfully made. Defaults to True
-        
+
         Examples:
             Get a record of clients without a CM session in the last 30 days::
 
                 e.last_30_days()
-            
+
             Get a record of clients without a CM session attempt in the last 30 days::
 
                 e.last_30_days(False)
-        '''
+        """
 
-        sessions_attempts = 'latest_session' if successful_sessions else 'latest_attempt'
-        query = f'''select participant_id, first_name, last_name, case_manager, cm_start, latest_linkage, isp_update latest_isp_update, {sessions_attempts} from neon.cm_summary
+        sessions_attempts = (
+            "latest_session" if successful_sessions else "latest_attempt"
+        )
+        query = f"""select participant_id, first_name, last_name, case_manager, cm_start, latest_linkage, isp_update latest_isp_update, {sessions_attempts} from neon.cm_summary
         where (latest_linkage is null or datediff({self.q_t1}, latest_linkage) >31)
         and (isp_update is null or datediff({self.q_t1}, isp_update) >31)
-        and (latest_session is null or datediff({self.q_t1}, {sessions_attempts}) >31)'''
+        and (latest_session is null or datediff({self.q_t1}, {sessions_attempts}) >31)"""
         df = self.query_run(query)
-        return(df)
+        return df
 
 
 class Grants(Queries):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon",mycase = True,cloud_run=False,grant_type='idhs'):
-        '''
+    def __init__(
+        self,
+        t1,
+        t2,
+        engine,
+        print_SQL=True,
+        clipboard=False,
+        default_table="stints.neon",
+        mycase=True,
+        cloud_run=False,
+        grant_type="idhs",
+    ):
+        """
         Establishes a Queries object with a grant-specific default table.
-        
-        Parameters: 
+
+        Parameters:
             t1: start date, formatted as "YYYY-MM-DD"
             t2: end date, formatted as "YYYY-MM-DD"
             print_sql(Bool): whether to print the SQL statements when run, defaults to True
@@ -4005,46 +4405,48 @@ class Grants(Queries):
 
         Example:
             Set default table to IDHS VP clients for CY25Q3
-            
+
             e = Grants(t1='2025-07-01', t2='2025-09-30', engine=neon_engine, clipboard=True, default_table='stints.neon',grant_type='idhs')
-        '''
-        
-        super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase,cloud_run)
+        """
+
+        super().__init__(
+            t1, t2, engine, print_SQL, clipboard, default_table, mycase, cloud_run
+        )
         self.grant_type = grant_type
         if not cloud_run:
-            if isinstance(grant_type,str):
-                self.table_update(grant_type, update_default_table = True)
+            if isinstance(grant_type, str):
+                self.table_update(grant_type, update_default_table=True)
 
     def audit_neighborhoods(self):
-        '''
+        """
         Returns all clients residing outside the grant's service area
 
         Note:
             Grants: Neighborhood Audit
-        '''
-        neighborhood_list = self.grant_dict[self.grant_type]['neighborhoods']
+        """
+        neighborhood_list = self.grant_dict[self.grant_type]["neighborhoods"]
         neighborhood_regexp = "|".join(neighborhood_list)
 
-        query = f'''
+        query = f"""
         select participant_id, concat(first_name, " ",left(last_name,1), ".") name, case_managers, address1, zip, community
         from neon.address_latest
         right join (select distinct participant_id, first_name, last_name, case_managers from {self.table}) s using(participant_id)
         where community is null or community not regexp "{neighborhood_regexp}"
-        '''
+        """
         df = self.query_run(query)
         return df
-    
+
     def a2j_intake(self):
-        '''
+        """
         Returns table for a2j's intake csv template (in use as of aug '25)
-        
-        Requires user to edit columns: Case Type, Case Subtype. 
-        User should also delete contents from all columns after zip. 
-            Their info corresponds to the mycase_id, legal_id, and case name in MyCase, 
+
+        Requires user to edit columns: Case Type, Case Subtype.
+        User should also delete contents from all columns after zip.
+            Their info corresponds to the mycase_id, legal_id, and case name in MyCase,
             and is only included for completing the Case Type and Subtype fields
-        '''
+        """
         month_name = datetime.strptime(self.t1, "%Y-%m-%d").strftime("%B")
-        query = f'''
+        query = f"""
         with parts as (
         select distinct participant_id, first_name, last_name, gender, race, ethnicity, zip from neon.basic_info
         left join neon.address_latest using(participant_id)),
@@ -4061,21 +4463,36 @@ class Grants(Queries):
         case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
         case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, mycase_id, legal_id, mycase_name 
         from merge
-        '''
+        """
         df = self.query_run(query)
-        df.columns = ["Import Type", "Reporting Month", "Unique Client ID", "Assessment Location", "Intake/Assessment Date","Case Type", "Case Subtype","Gender","Race", "Hispanic/Latino", "Residential Zip Code","Issue Presented","Impact of Incarceration","Notes"]
+        df.columns = [
+            "Import Type",
+            "Reporting Month",
+            "Unique Client ID",
+            "Assessment Location",
+            "Intake/Assessment Date",
+            "Case Type",
+            "Case Subtype",
+            "Gender",
+            "Race",
+            "Hispanic/Latino",
+            "Residential Zip Code",
+            "Issue Presented",
+            "Impact of Incarceration",
+            "Notes",
+        ]
         return df
 
-    def a2j_import(self, include_pending = False):
-        '''
+    def a2j_import(self, include_pending=False):
+        """
         Returns table for a2j's import csv template (in use as of aug '25)
 
         Requires user to edit columns: Case Type, Case Subtype, Type of Service Provided, Case Outcome-General
         If additional information is needed, "Unique Case Number" corresponds to a case's MyCase ID
-        '''
+        """
 
         month_name = datetime.strptime(self.t1, "%Y-%m-%d").strftime("%B")
-        query = f'''with parts as (
+        query = f"""with parts as (
 select distinct participant_id, first_name, last_name, gender, race, ethnicity, zip from neon.basic_info
 left join neon.address_latest using(participant_id)),
 
@@ -4144,10 +4561,10 @@ case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adul
 case_type as case_subtype, case_outcome, sentence, gender,
 case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
 case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, NULL as notes
-from merge_link'''
-        
+from merge_link"""
+
         if include_pending:
-            addendum = f'''(select distinct  'Pending Case' as import_type, '{month_name}' as reporting_month, 
+            addendum = f"""(select distinct  'Pending Case' as import_type, '{month_name}' as reporting_month, 
             mycase_id, case_start, case_start, case_outcome_date,
             case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
             case when case_type = 'Missing' then null else case_type end as case_subtype, case_outcome, sentence, gender,
@@ -4158,36 +4575,226 @@ from merge_link'''
             
             from parts
             join pending_cases using(participant_id))
-            '''
-            query = query + ' UNION ALL ' + addendum
+            """
+            query = query + " UNION ALL " + addendum
         df = self.query_run(query)
-        df.columns = ["Import Type","Reporting Month","Unique Case Number","Start Date","Date Case Filed", "Case Closing Date", "Case Type", "Case Subtype", "Type of Service Provided", "Case Outcome-General","Gender", "Race", "Hispanic/Latino", "Residential Zip Code", "Case is in Illinois Jurisdiction","Notes"]
+        df.columns = [
+            "Import Type",
+            "Reporting Month",
+            "Unique Case Number",
+            "Start Date",
+            "Date Case Filed",
+            "Case Closing Date",
+            "Case Type",
+            "Case Subtype",
+            "Type of Service Provided",
+            "Case Outcome-General",
+            "Gender",
+            "Race",
+            "Hispanic/Latino",
+            "Residential Zip Code",
+            "Case is in Illinois Jurisdiction",
+            "Notes",
+        ]
+        return df
+
+    def a2j_legal_services(self, include_pending=False, existing_support_path=None):
+        month_name = datetime.strptime(self.t1, "%Y-%m-%d").strftime("%B")
+
+        pending_table = (
+            f"""
+        pending_cases as (select * 
+        from neon.leg_mc
+                join 
+                    (select distinct participant_id, stint_start from  stints.stints_plus_stint_count
+                    join (select distinct participant_id, program_start, program_end from stints.neon) n using(participant_id)
+                    where (program_start <= stint_end OR stint_end IS NULL) AND (program_end >= stint_start OR program_end IS NULL)
+                ) n using(participant_id, stint_start)
+                left join 
+                (select distinct mycase_id, stage_start t2_stage_start, stage case_stage_t2 from mycase.case_stages
+                    join
+                        (select mycase_id, max(stage_start) stage_start from mycase.case_stages
+                        where stage_start <= {self.q_t2}
+                        group by mycase_id) 
+                    m using(mycase_id, stage_start)) st using(mycase_id)
+                where case_start <= {self.q_t1} and (case_outcome_date is null or case_outcome_date > {self.q_t2}) and 
+        (case_end is null or case_end > {self.q_t2}) and (case_stage_t2 is null or case_stage_t2 not regexp "case closed.*|msnp")),
+        """
+            if include_pending
+            else ""
+        )
+
+        pending_addendum = (
+            f"""
+        UNION ALL
+        (select distinct  'Pending Case' as import_type, '{month_name}' as reporting_month, 
+            mycase_id, case_start, case_start, case_outcome_date,
+            case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
+            case when case_type = 'Missing' then null else case_type end as case_subtype, case_outcome, sentence, gender,
+            
+            case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "Other" end race,
+            case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, participant_id as notes
+            
+            
+            from parts
+            join pending_cases using(participant_id))
+            """
+            if include_pending
+            else ""
+        )
+
+        query = f"""with parts as (
+select distinct participant_id, first_name, last_name, gender, race, ethnicity, zip from neon.basic_info
+left join neon.address_latest using(participant_id)),
+
+merge as (select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, juvenile_adult, case_start, coalesce(case_outcome_date, case_end) case_outcome_date, case_type, case_outcome, sentence from parts
+join neon.legal_mycase using(participant_id)
+where case_outcome_date between {self.q_t1} and {self.q_t2} or 
+    (case_end between {self.q_t1} and {self.q_t2} and participant_id in (select distinct participant_id from stints.neon where program_end is not null))),
+
+new_cases as (
+select distinct mycase_id, legal_id, mycase_name, participant_id, first_name, last_name, case_id, gender, race, ethnicity, zip, juvenile_adult, case_start, case_outcome_date, case_type, case_outcome, sentence from parts
+join neon.legal_mycase using(participant_id)
+where case_start between {self.q_t1} and {self.q_t2} and (case_outcome_date is null or case_outcome_date > {self.q_t2}) and (case_end is null or case_end > {self.q_t2})
+),
+
+{pending_table}
+
+closed_cases as (select 'Case Closed' as import_type, '{month_name}' as reporting_month, 
+mycase_id, case_start, case_start case_opened, case_outcome_date,
+case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
+case_type as case_subtype, case_outcome, sentence, gender,
+   
+case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
+case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, participant_id as notes
+from merge),
+
+all_cases as (
+select * from closed_cases
+
+{pending_addendum}
+
+UNION ALL
+
+select 'Case Opened' as import_type, '{month_name}' as reporting_month, 
+mycase_id, case_start, case_start, case_outcome_date,
+case when juvenile_adult like '%adult%' then 'Criminal-Adult' when juvenile_adult like "%juv%" then 'Criminal-Juvenile' when case_type like 'other' then "Other" else juvenile_adult end case_type,
+case_type as case_subtype, case_outcome, sentence, gender,
+case when race like 'black%' then 'Black/African American' when race like "%indian%" then "American Indian/AK Native"  when race like "multiple%" then "Multiple Races" else "other" end race,
+case when ethnicity like 'not%' then 'No' else 'Yes' end ethnicity, zip, "yes" as in_il, participant_id as notes
+from new_cases),
+
+all_support_services as (
+select distinct
+  'Additional Support Services' as import_type, '{month_name}' as reporting_month,
+  mycase_id, service_start, case_opened, case_outcome_date, case_type,
+  case_subtype, case_outcome, sentence, gender, race, ethnicity, zip, in_il, notes
+
+  
+  from all_cases
+
+right join (
+select distinct p.notes, mycase_id, service_start from stints.neon s
+join (select distinct notes , max(mycase_id) mycase_id from all_cases
+where (import_type != 'Case Closed' or case_start >= {self.q_t1})
+group by notes) p on (s.participant_id = p.notes)
+where service_type = 'case management') r using (notes, mycase_id))
+
+select * from all_cases
+union all
+select * from all_support_services
+"""
+        df = self.query_run(query)
+
+        if existing_support_path:
+            existing_support = pd.read_csv(existing_support_path)
+            existing_df = pd.merge(
+                df,
+                existing_support,
+                how="left",
+                left_on="notes",
+                right_on="participant_id",
+            )
+
+            # filter out cm records that have already been uploaded in a prior month
+            existing_df_mask = (
+                (existing_df["participant_id"].notna())
+                & (existing_df["import_type"] == "Additional Support Service")
+                & (
+                    (existing_df["upload_month"] != existing_df["reporting_month"])
+                    | (existing_df["reporting_month"] == "July")
+                )
+            )
+
+            existing_df = existing_df[~existing_df_mask].drop(
+                columns=["upload_month", "participant_id"]
+            )
+
+            supports_to_add = existing_df[
+                existing_df["import_type"] == "Additional Support Service"
+            ][["reporting_month", "notes"]].rename(
+                columns={"reporting_month": "upload_month", "notes": "participant_id"}
+            )
+
+            # update existing service csv file
+            full_supports = pd.concat([existing_support, supports_to_add])
+            full_supports.drop_duplicates().to_csv(existing_support_path, index=False)
+
+            existing_df["notes"] = None
+            df = existing_df
+
+        df.columns = [
+            "Import Type",
+            "Reporting Month",
+            "Unique Case Number",
+            "Start Date",
+            "Date Case Filed",
+            "Case Closing Date",
+            "Case Type",
+            "Case Subtype",
+            "Type of Service Provided",
+            "Case Outcome-General",
+            "Gender",
+            "Race",
+            "Hispanic/Latino",
+            "Residential Zip Code",
+            "Case is in Illinois Jurisdiction",
+            "Notes",
+        ]
+
         return df
 
     def a2j_compare_subtypes(self, a2j_df, existing_subtype_path):
         subtype_df = pd.read_csv(existing_subtype_path).drop_duplicates()
-        id_col = 'Issue Presented' if 'Issue Presented' in a2j_df.columns else 'Unique Case Number'
-        
-        concat_cols = a2j_df[[id_col,'Case Type','Case Subtype']].copy()
-        concat_cols.columns = subtype_df.columns
-        subtype_df = pd.concat([subtype_df, concat_cols]).drop_duplicates(subset = 'Unique Case Number', keep='first', ignore_index=True)
+        id_col = (
+            "Issue Presented"
+            if "Issue Presented" in a2j_df.columns
+            else "Unique Case Number"
+        )
 
-        updates = (a2j_df[[id_col]]
-            .join(subtype_df.set_index("Unique Case Number")[["Case Type", "Case Subtype"]], on=id_col))
-        
+        concat_cols = a2j_df[[id_col, "Case Type", "Case Subtype"]].copy()
+        concat_cols.columns = subtype_df.columns
+        subtype_df = pd.concat([subtype_df, concat_cols]).drop_duplicates(
+            subset="Unique Case Number", keep="first", ignore_index=True
+        )
+
+        updates = a2j_df[[id_col]].join(
+            subtype_df.set_index("Unique Case Number")[["Case Type", "Case Subtype"]],
+            on=id_col,
+        )
+
         a2j_df.update(updates)
         subtype_df.to_csv(existing_subtype_path, index=False)
         return a2j_df
 
-
     def cvi_demographics(self):
-        '''
+        """
         Returns Demographics for the ICJIA - CVI report
 
         Note:
             Grants: ICJIA - CVI Demographics
-        '''
-        query = f'''with ages as(
+        """
+        query = f"""with ages as(
         select 'age','0-5' as age_range, count(distinct case when new_client = 'continuing' then participant_id else null end) 'continuing',
 count(distinct case when new_client = 'new' then participant_id else null end) 'new',
 count(distinct case when discharged_client is not null then participant_id else null end) 'discharged'
@@ -4245,63 +4852,62 @@ select * from races
 union all
 select * from genders
 union all
-select * from ages'''
+select * from ages"""
         df = self.query_run(query)
         return df
-    
+
     def cvi_mental_health_linkages(self):
-        '''
+        """
         ICJIA - CVI Mental Health Linkages
 
         Note:
             Grants: ICJIA - CVI Mental Health Linkages
-        '''
+        """
 
-        query = f'''
+        query = f"""
         select count(distinct case when linked_date between {self.q_t1} and {self.q_t2} and client_initiated = 'LCLC Staff' then participant_id else null end) linkages_made,
         count(distinct case when start_date between {self.q_t1} and {self.q_t2} then participant_id else null end) linkages_started
         from neon.linkages
         where (internal_program = 'therapy' or linkage_type = 'mental health') and participant_id in (select participant_id from grant_projections.cvi_full)
-        '''
+        """
 
         df = self.query_run(query)
         return df
-    
+
     def cvi_post_incident(self):
-        '''
+        """
         Returns number of people received services after homicide shooting
 
         Example:
             Get # of people who received services after homicide shooting::
 
                 e.cvi_post_incident()
-        
+
         Note:
             Grants: ICJIA - CVI Recieved Services after Shooting
-        '''
-        query = f'''
+        """
+        query = f"""
         select type_incident, sum(num_individuals) as total_ppl from neon.critical_incidents
         where num_deceased > 0 and incident_date between {self.q_t1} and {self.q_t2}
         group by type_incident
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-
+        return df
 
     def idhs_enrollment(self):
-        '''
+        """
         Returns a table of enrollment numbers for IDHS
 
         Example:
             Get clients enrolled in IDHS and its services::
 
                 e.idhs_enrollment()
-        
+
         Note:
             Grants: IDHS - VP Enrollment
-        '''
+        """
 
-        query = f'''select 'TOTAL' as 'clients', count(distinct case when new_client = 'new' then participant_id else null end) as new,
+        query = f"""select 'TOTAL' as 'clients', count(distinct case when new_client = 'new' then participant_id else null end) as new,
         count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing,
         count(distinct case when discharged_client = 'program' then participant_id else null end) as discharged
         from {self.table}
@@ -4311,41 +4917,41 @@ select * from ages'''
         count(distinct case when new_client = 'continuing' and grant_start not between {self.q_t1} and {self.q_t2} then participant_id else null end) as continuing,
         count(distinct case when discharged_client is not null then participant_id else null end) as discharged
         from {self.table}
-        group by service_type'''
+        group by service_type"""
         df = self.query_run(query)
-        return(df)
-    
-    def idhs_race_gender(self, race_gender = 'race'):
-        '''
+        return df
+
+    def idhs_race_gender(self, race_gender="race"):
+        """
         Returns a table of client races or genders broken out by new client status
 
         Parameters:
             race_gender (str): whether to tally 'race' or 'gender'. Defaults to 'race'
-        
+
         Examples:
             See IDHS client races::
 
                 e.idhs_race_gender('race')
 
             See IDHS client genders::
-                
+
                 e.idhs_race_gender('gender')
-        
+
         Note:
             Grants: IDHS - VP Client Races or Genders
-        '''
+        """
 
-        query = f'''
+        query = f"""
         select {race_gender}, count(distinct case when new_client = 'new' then participant_id else null end) as new,
         count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
         from {self.table}
         group by {race_gender}
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     def idhs_language(self):
-        '''
+        """
         Counts participant primary languages
 
         Example:
@@ -4353,37 +4959,37 @@ select * from ages'''
             Get IDHS client primary languages::
 
                 e.idhs_language()
-        
+
         Note:
             Grants: IDHS - VP Client Languages
-        '''
-        query = f'''select new_client, language_primary, count(distinct participant_id)
+        """
+        query = f"""select new_client, language_primary, count(distinct participant_id)
         from {self.table}
-        group by new_client, language_primary'''
+        group by new_client, language_primary"""
         df = self.query_run(query)
         return df
 
-    def idhs_age(self, cvi = False):
-        '''
+    def idhs_age(self, cvi=False):
+        """
         Returns a table of client ages broken out by new client status
 
         Parameters:
             cvi (Bool): whether to use the age groups on the CVI form. Defaults to False
-        
+
         Examples:
             Get IDHS client ages for the CVI::
 
                 e.idhs_age(True)
-            
+
             Get IDHS client ages for the PPR::
 
                 e.idhs_age(False)
-        
+
         Note:
             Grants: IDHS - VP Client Ages
-        '''
+        """
         if cvi:
-            query = f'''
+            query = f"""
             select 'Under 18' as age_range, count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
             from {self.table}
@@ -4402,9 +5008,9 @@ select * from ages'''
             select 'MISSING' as age_range, count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
             from {self.table}
-            where birth_date is null'''
+            where birth_date is null"""
         else:
-            query = f'''
+            query = f"""
             select '11-13' as age_range, count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
             from {self.table}
@@ -4429,37 +5035,35 @@ select * from ages'''
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
             from {self.table}
             where birth_date is null
-            '''
+            """
         df = self.query_run(query)
-        return(df)
-    
-    
-    def idhs_linkages(self, internal_external = False, cm_only = True):
-        '''
+        return df
+
+    def idhs_linkages(self, internal_external=False, cm_only=True):
+        """
         Returns a table of linkage information for the quarter
-        
+
         Parameters:
             internal_external: whether to group by internal/external functions. Defaults to False
             cm_only: whether to only count clients with case management funded by grant. Defaults to True
-        
+
         Examples:
             Get IDHS client linkages by linkage category::
 
                 e.idhs_linkages()
-            
+
             Get a breakdown of internal/external linkages for IDHS clients::
 
                 e.idhs_linkages(True)
-        
+
         Note:
             Grants: IDHS - VP Linkage Table
-        
-        '''
-        
-        
-        int_ext = 'internal_external' if internal_external else 'linkage_type'
-        cm_only_statement = "where service_type = 'case management'" if cm_only else ''
-        query = f'''
+
+        """
+
+        int_ext = "internal_external" if internal_external else "linkage_type"
+        cm_only_statement = "where service_type = 'case management'" if cm_only else ""
+        query = f"""
         with link as(
         select participant_id, new_client, case when linkage_type is null then internal_program else linkage_type end as linkage_type, internal_external, linkage_org from neon.linkages
         join (select distinct participant_id, new_client from {self.table} {cm_only_statement}) i using(participant_id)
@@ -4469,15 +5073,15 @@ select * from ages'''
         count(case when new_client = 'continuing' then participant_id else null end) as cont_links
         from link
         group by {int_ext}
-        '''
+        """
         df = self.query_run(query)
-        return(df)
+        return df
 
     def idhs_linkages_detailed(self):
-        '''
-        Returns a Frankensteined table of other forms of 'detail-level services'. 
+        """
+        Returns a Frankensteined table of other forms of 'detail-level services'.
         Currently includes in-kind services, outreach/cm assessments, and topics of cm sessions.
-        
+
         Example:
             Get a table of non-linkages services IDHS clients were connected to::
 
@@ -4485,22 +5089,23 @@ select * from ages'''
 
         Note:
             Grants: IDHS - VP Extended Linkage Table
-        '''
+        """
+
         def in_kind_services():
             ### FIX FIX FIX
-            query = f'''
+            query = f"""
             select concat('Received ', service_type) detail_service_type, 
             count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
             from stints.neon
             join (select distinct participant_id, new_client from {self.table}) i using(participant_id)
             where grant_type not like "IDHS VP"
-            group by service_type'''
+            group by service_type"""
             df = self.query_run(query)
-            return(df)
+            return df
 
         def assessments_plus():
-            query = f'''
+            query = f"""
             with part as (select distinct participant_id, new_client from {self.table}),
 
             isp_updates as(select 'Received an ISP update' detail_service_type, count(distinct case when new_client = 'new' then participant_id else null end) as new,
@@ -4545,12 +5150,12 @@ select * from ages'''
             select * from ow_assess
             union all
             select * from successful_sessions
-            '''
+            """
             df = self.query_run(query)
-            return(df)
-        
+            return df
+
         def cm_sessions():
-            query = f'''
+            query = f"""
 
             with sess as(select participant_id, focus_contact, contact_type, new_client, description from neon.case_sessions
             join (select distinct participant_id, new_client from {self.table} where service_type = 'case management') i using(participant_id)
@@ -4575,33 +5180,39 @@ select * from ages'''
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing from 
             separated
             group by separated_focus
-            '''
+            """
             df = self.query_run(query)
-            return(df)
-        
-        sessions = cm_sessions().set_index('detail_service_type')
-        assess = assessments_plus().set_index('detail_service_type')
-        in_kind = in_kind_services().set_index('detail_service_type')
-        df = pd.concat([in_kind, assess, sessions], keys=['In-Kind Services','Other Detail-Level Services','Focus of CM Sessions'])
+            return df
+
+        sessions = cm_sessions().set_index("detail_service_type")
+        assess = assessments_plus().set_index("detail_service_type")
+        in_kind = in_kind_services().set_index("detail_service_type")
+        df = pd.concat(
+            [in_kind, assess, sessions],
+            keys=[
+                "In-Kind Services",
+                "Other Detail-Level Services",
+                "Focus of CM Sessions",
+            ],
+        )
         df = df.reset_index()
-        df = df.rename(columns={'level_0':'data_source'})
+        df = df.rename(columns={"level_0": "data_source"})
         return df
 
-
     def idhs_r_schooling_gender(self):
-        '''
+        """
         Returns client gender counts broken out by schooling status
 
         Example:
             Get client genders/school statuses for IDHS - R::
 
                 e.idhs_r_schooling_gender()
-        
+
         Note:
             Grants: IDHS - R Client Genders/School Statuses
-        '''
+        """
 
-        query = f'''
+        query = f"""
         with edu as (
         select distinct(participant_id), linkage_org from neon.linkages
         where linkage_type like "education%" and start_date is not null and end_status is null
@@ -4613,25 +5224,25 @@ select * from ages'''
         left join edu using(participant_id)
         where new_client = 'new'
         group by gender
-        '''
+        """
 
         df = self.query_run(query)
         return df
 
     def idhs_r_age_gender(self):
-        '''
+        """
         Returns client gender counts broken out by age range
 
         Example:
             Get client genders/ages for IDHS - R::
 
                 e.idhs_r_age_gender()
-        
+
         Note:
             Grants: IDHS - R Client Ages/Genders
-        '''
+        """
 
-        query = f'''
+        query = f"""
                 select '13 and Under' as age_range, count(distinct case when gender = 'male' then participant_id else null end) as male,
                 count(distinct case when gender = 'female' then participant_id else null end) as female,
                 count(distinct case when gender not regexp "female|male" then participant_id else null end) as other,
@@ -4680,20 +5291,20 @@ select * from ages'''
                 count(distinct case when gender is null then participant_id else null end) as missing
                 from {self.table}
                 where birth_date is null and new_client = 'new'
-        '''
-        
+        """
+
         df = self.query_run(query)
         return df
 
     def jac_linkages(self):
-        '''
+        """
         Counts clients provided/referred to services within timeframe, listing all referral partners
-        
+
         Note:
             Grants: JAC - HD Service Connections Provided/Referred
-        '''
-        
-        query = f'''
+        """
+
+        query = f"""
 with linkage_table as (select participant_id, client_initiated, 
   case when linkage_type is null then internal_program
   when linkage_type like 'other%' and comments like '%service hour%' then 'Community Service'
@@ -4717,19 +5328,19 @@ select * from (select linkage_type,
   where provided = 1 or referred = 1
 group by linkage_type) l
 left join partners using(linkage_type)
-'''
+"""
         df = self.query_run(query)
         return df
 
     def r3_ages(self):
-        '''
+        """
         Returns client ages for groups 6-11, 12-14, 15-17, 18-25, 26+
-        
+
         Note:
             Grants: ICJIA - R3 Client Ages
-        '''
+        """
 
-        query = f'''
+        query = f"""
         select '6-11' as age_range, count(distinct case when new_client = 'new' then participant_id else null end) as new,
         count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
         from {self.table}
@@ -4759,20 +5370,20 @@ left join partners using(linkage_type)
         count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing
         from {self.table}
         where birth_date is null
-        '''
+        """
 
         df = self.query_run(query)
         return df
 
     def ryds_ages(self):
-        '''
+        """
         Returns client ages for groups 0-11, 11-13, 14-17, 18-21, 22+
 
         Note:
             Grants: IDHS - RYDS Client Ages
-        '''
+        """
 
-        query = f'''
+        query = f"""
         select '0-10' as age_group, count(distinct participant_id) count from {self.table}
         where TIMESTAMPDIFF(YEAR, birth_date, grant_start) BETWEEN 0 AND 10 and new_client = 'new'
         union all
@@ -4790,23 +5401,23 @@ left join partners using(linkage_type)
         union all
         select 'MISSING' as age_group, count(distinct participant_id) count from {self.table}
         where birth_date is null and new_client = 'new'
-        '''
+        """
 
         df = self.query_run(query)
         return df
-    
-    def ryds_curriculum(self, summary_table = True, sessions_per_unit = 2):
-        '''
-        Returns a table of curriculum completion information for clients, by default grouped in a summary_table.  
+
+    def ryds_curriculum(self, summary_table=True, sessions_per_unit=2):
+        """
+        Returns a table of curriculum completion information for clients, by default grouped in a summary_table.
 
         Parameters:
             summary_table: True returns a table with bins matching the PPR report. False returns one row per client, with information on which units are missing.
             sessions_per_unit: # of sessions it takes to complete an RYDS unit. Defaults to 2
         Note:
             Grants: IDHS - RYDS Curriculum Completion
-        '''
-        
-        query = f'''
+        """
+
+        query = f"""
         with complete_table as 
         (select *, (case when num_sessions {'=' if sessions_per_unit == 2 else '<'} 1 then .5 else 1 end) unit_completion from 
         (select participant_id, unit_number, count(participant_id) num_sessions from 
@@ -4829,55 +5440,71 @@ left join partners using(linkage_type)
                 else "0%" end completion_group from unit_table
         right join (select distinct participant_id, service_end, concat(first_name, " ",left(last_name,1), ".") name, "1, 2, 3, 4, 5, 6" as missing_units
         from {self.table} where service_type = 'civic engagement') r using(participant_id))
-        '''
-        
+        """
+
         if summary_table:
-            addendum = 'select completion_group, count(distinct participant_id) count, ' \
-            'count(distinct case when service_end is not null then participant_id else null end) unenrolled_count' \
-            ' from big_table group by completion_group'
-            query = query + ' ' + addendum
+            addendum = (
+                "select completion_group, count(distinct participant_id) count, "
+                "count(distinct case when service_end is not null then participant_id else null end) unenrolled_count"
+                " from big_table group by completion_group"
+            )
+            query = query + " " + addendum
             df = self.query_run(query)
             return df
-        
-        addendum = 'select * from big_table'
-        query = query + ' ' + addendum
+
+        addendum = "select * from big_table"
+        query = query + " " + addendum
         df = self.query_run(query)
-        
+
         copy_df = df.copy()
-        copy_df['missing_units'] = copy_df['missing_units'].apply(lambda x: x.split(', ') if pd.notna(x) else [])
-        copy_df['partial_units'] = copy_df['partial_units'].apply(lambda x: x.split(', ') if pd.notna(x) else [])
-        copy_df['complete_units'] = copy_df['complete_units'].apply(lambda x: x.split(', ') if pd.notna(x) else [])
+        copy_df["missing_units"] = copy_df["missing_units"].apply(
+            lambda x: x.split(", ") if pd.notna(x) else []
+        )
+        copy_df["partial_units"] = copy_df["partial_units"].apply(
+            lambda x: x.split(", ") if pd.notna(x) else []
+        )
+        copy_df["complete_units"] = copy_df["complete_units"].apply(
+            lambda x: x.split(", ") if pd.notna(x) else []
+        )
 
         # remove units from the missing units list that appear in the other two
-        df['missing_units'] = copy_df.apply(
+        df["missing_units"] = copy_df.apply(
             lambda row: [
-                elem for elem in row['missing_units']
-                if elem not in set(row['complete_units'] + row['partial_units'])
+                elem
+                for elem in row["missing_units"]
+                if elem not in set(row["complete_units"] + row["partial_units"])
             ],
-            axis=1)
+            axis=1,
+        )
         # revert to string
-        df['missing_units'] = df['missing_units'].transform(lambda x: ','.join(map(str, x)))
-        
+        df["missing_units"] = df["missing_units"].transform(
+            lambda x: ",".join(map(str, x))
+        )
+
         # chuck partial column if only one session per unit
         if sessions_per_unit == 1:
-            df = df.drop('partial_units', axis=1)
+            df = df.drop("partial_units", axis=1)
 
         return df
-    
+
     def victim_services_sessions(self, timeframe=True, services_per_client=False):
-        '''
+        """
         Overview on the topics of victim services sessions
 
         Parameters:
             timeframe (Bool): only include sessions in timeframe. Defaults to True
             services_per_client (Bool): count the total number of topics for a given client (instead of the number of clients receiving each service). Defaults to False
-        
-        
+
+
         Note:
             Case Sessions - Victim Services
-        '''
-        timeframe_str = f'and (session_date between {self.q_t1} and {self.q_t2})' if timeframe else ''
-        base = f'''
+        """
+        timeframe_str = (
+            f"and (session_date between {self.q_t1} and {self.q_t2})"
+            if timeframe
+            else ""
+        )
+        base = f"""
 with sess as(select participant_id, focus_contact, contact_type, new_client, description from neon.victim_services
             join (select distinct participant_id, new_client from {self.table} where service_type = 'victim services') i using(participant_id)
             where successful_contact = 'Yes' and focus_contact is not null {timeframe_str}),
@@ -4896,37 +5523,47 @@ with sess as(select participant_id, focus_contact, contact_type, new_client, des
                 SELECT 9
             ) AS numbers
             ON CHAR_LENGTH(focus_contact) - CHAR_LENGTH(REPLACE(focus_contact, ',', '')) >= n - 1)
-            '''
+            """
         if services_per_client:
-            addendum = '''select participant_id, new_client, count(distinct separated_focus) total_topics, 
+            addendum = """select participant_id, new_client, count(distinct separated_focus) total_topics, 
   group_concat(distinct separated_focus separator ", ") topic_list 
   from separated
-  group by participant_id, new_client'''
+  group by participant_id, new_client"""
         else:
-            addendum = '''select separated_focus session_focus, count(distinct case when new_client = 'new' then participant_id else null end) as new,
+            addendum = """select separated_focus session_focus, count(distinct case when new_client = 'new' then participant_id else null end) as new,
             count(distinct case when new_client = 'continuing' then participant_id else null end) as continuing from 
             separated
-            group by separated_focus'''
-        query = base + ' ' + addendum
-        
+            group by separated_focus"""
+        query = base + " " + addendum
+
         df = self.query_run(query)
-        return(df)
+        return df
+
 
 class ServiceAudit(Queries):
-    def __init__(self, t1, t2, engine, print_SQL = True, clipboard = False, default_table="stints.neon", mycase = True):
-        '''
+    def __init__(
+        self,
+        t1,
+        t2,
+        engine,
+        print_SQL=True,
+        clipboard=False,
+        default_table="stints.neon",
+        mycase=True,
+    ):
+        """
         Run an audit on service engagement/completion between t1 and t2!
 
         Individual services can be analyzed with methods: cm_enrolled, legal_enrolled, outreach_enrolled, and other_services_enrolled
         Referral analysis (with a properly formatted jotform spreadsheet) can be done using analyze_referrals, and includes referral information in subsequent uses of create_big_service_table
-        Use create_big_service_table to run all services at once, and/or add_closure_info to include closure reasons. 
+        Use create_big_service_table to run all services at once, and/or add_closure_info to include closure reasons.
         create_big_service_table also enables you to adjust the criteria for different enrollment statuses by including a parameter_dict with the format {'Service Name':{parameter_name:parameter_val}}
         Finally, push_to_mysql pushes filtered service table to your participants SQL schema, with the table name [date_label]_filtered
-        
+
         Example:
             Basic workflow: self.create_big_service_table(), self.add_closure_info(), self.push_to_mysql()
             Workflow with referrals: self.analyze_referrals(), self.create_big_service_table(), self.add_closure_info(), self.push_to_mysql()
-        '''
+        """
         super().__init__(t1, t2, engine, print_SQL, clipboard, default_table, mycase)
         self.date_label = self.label_date_range()
 
@@ -4938,35 +5575,42 @@ class ServiceAudit(Queries):
         # --- Fiscal Year (Jul 1 -> Jun 30) ---
         fy_start = pd.Timestamp(year=start.year, month=7, day=1)
 
-        if start == fy_start and \
-        end == (fy_start + pd.DateOffset(years=1) - pd.Timedelta(days=1)):
+        if start == fy_start and end == (
+            fy_start + pd.DateOffset(years=1) - pd.Timedelta(days=1)
+        ):
             return f"FY{str(end.year)[-2:]}"
         # --- Full Year ---
-        if start.to_period("Y") == end.to_period("Y") and \
-        start == start.to_period("Y").start_time.normalize() and \
-        end == end.to_period("Y").end_time.normalize():
+        if (
+            start.to_period("Y") == end.to_period("Y")
+            and start == start.to_period("Y").start_time.normalize()
+            and end == end.to_period("Y").end_time.normalize()
+        ):
             return str(start.year)
 
         # --- Calendar Quarter ---
-        if start.to_period("Q") == end.to_period("Q") and \
-        start == start.to_period("Q").start_time.normalize()  and \
-        end == end.to_period("Q").end_time.normalize() :
+        if (
+            start.to_period("Q") == end.to_period("Q")
+            and start == start.to_period("Q").start_time.normalize()
+            and end == end.to_period("Q").end_time.normalize()
+        ):
             q = start.quarter
             return f"CYQ{q} {start.year}"
 
         # --- Full Month ---
-        if start.to_period("M") == end.to_period("M") and \
-        start == start.to_period("M").start_time.normalize()  and \
-        end == end.to_period("M").end_time.normalize() :
+        if (
+            start.to_period("M") == end.to_period("M")
+            and start == start.to_period("M").start_time.normalize()
+            and end == end.to_period("M").end_time.normalize()
+        ):
             return start.strftime("%B %Y")
 
         return "Timeframe"
-    
+
     def get_every_service(self):
-        '''
+        """
         Returns table of all services active in timeframe. If analyze_referrals has already been run, also includes the enrollment pathway for each service
-        '''
-        query = f'''
+        """
+        query = f"""
         select distinct participant_id, program_type, program_id, program_start, program_end, service_type, service_id, service_start, coalesce(service_end, program_end) service_end, new_stint, closed_stint,
   case when program_start between {self.q_t1} and {self.q_t2} then 'new' else 'continuing' end new_program,
   case when program_end is null then 'ongoing'
@@ -5001,49 +5645,76 @@ class ServiceAudit(Queries):
       group by participant_id) st using(participant_id)
       
 where program_type regexp "diversion|community navigation|violence prevention|chd"
-        '''
+        """
         df = self.query_run(query)
 
-        if not hasattr(self, 'referral_df'):
+        if not hasattr(self, "referral_df"):
             return df
-        
+
         # add referral pathway info
         referrals = self.referral_df
-        every_service_referred = pd.merge(df,
-         referrals.dropna(subset='participant_id')[['participant_id','first_enrolled','2025_program']].rename(columns={f'{self.date_label}_program':'program_type'}),
-         on=['participant_id','program_type'],
-        how='left')
+        every_service_referred = pd.merge(
+            df,
+            referrals.dropna(subset="participant_id")[
+                ["participant_id", "first_enrolled", "2025_program"]
+            ].rename(columns={f"{self.date_label}_program": "program_type"}),
+            on=["participant_id", "program_type"],
+            how="left",
+        )
 
-        scan_mask = ~(every_service_referred['new_stint']=='continuing') & (every_service_referred['first_enrolled'].isnull()) & (every_service_referred['program_type']=='Community Navigation')
-        diversion_mask = ~(every_service_referred['new_stint']=='continuing') & (every_service_referred['first_enrolled'].isnull()) & (every_service_referred['program_type']=='Diversion')
-        vs_mask = ~(every_service_referred['new_stint']=='continuing') & \
-                            (every_service_referred['first_enrolled'].isnull()) & \
-                            (every_service_referred['program_type']=='Violence Prevention') & \
-                            (every_service_referred['service_type']=='Victim Services')
-        civic_mask = ~(every_service_referred['new_stint']=='continuing') & \
-                            (every_service_referred['first_enrolled'].isnull()) & \
-                            (every_service_referred['program_type']=='Violence Prevention') & \
-                            (every_service_referred['service_type']=='Civic Engagement')
-        jotform_mask = ~(every_service_referred['first_enrolled'].isnull())
+        scan_mask = (
+            ~(every_service_referred["new_stint"] == "continuing")
+            & (every_service_referred["first_enrolled"].isnull())
+            & (every_service_referred["program_type"] == "Community Navigation")
+        )
+        diversion_mask = (
+            ~(every_service_referred["new_stint"] == "continuing")
+            & (every_service_referred["first_enrolled"].isnull())
+            & (every_service_referred["program_type"] == "Diversion")
+        )
+        vs_mask = (
+            ~(every_service_referred["new_stint"] == "continuing")
+            & (every_service_referred["first_enrolled"].isnull())
+            & (every_service_referred["program_type"] == "Violence Prevention")
+            & (every_service_referred["service_type"] == "Victim Services")
+        )
+        civic_mask = (
+            ~(every_service_referred["new_stint"] == "continuing")
+            & (every_service_referred["first_enrolled"].isnull())
+            & (every_service_referred["program_type"] == "Violence Prevention")
+            & (every_service_referred["service_type"] == "Civic Engagement")
+        )
+        jotform_mask = ~(every_service_referred["first_enrolled"].isnull())
 
-        choice_labels = ['SCaN Referral', 'Diversion Referral', 'Victim Services Referral','Civic Engagement Referral','Jotform Referral']
+        choice_labels = [
+            "SCaN Referral",
+            "Diversion Referral",
+            "Victim Services Referral",
+            "Civic Engagement Referral",
+            "Jotform Referral",
+        ]
 
-        every_service_referred['referral_pathway'] = np.select([scan_mask, diversion_mask, vs_mask, civic_mask, jotform_mask],choice_labels, None)
+        every_service_referred["referral_pathway"] = np.select(
+            [scan_mask, diversion_mask, vs_mask, civic_mask, jotform_mask],
+            choice_labels,
+            None,
+        )
 
+        every_service = pd.merge(
+            df,
+            every_service_referred[["service_id", "referral_pathway"]],
+            how="inner",
+            on="service_id",
+        )
 
+        return every_service
 
-        every_service = pd.merge(df,
-                every_service_referred[['service_id','referral_pathway']], how='inner', on='service_id')
-
-            
-        return(every_service)
-    
     def get_intake_closure_info(self):
-        '''
-        Returns a table of close reasons and the latest intake date within the service period 
-        '''
+        """
+        Returns a table of close reasons and the latest intake date within the service period
+        """
 
-        query = f'''
+        query = f"""
 select distinct service_id, case when intake_date between p.program_start and p.program_end or (p.program_end is null and intake_date >= p.program_start) then intake_date
   else null end intake_date,
   coalesce(service_close_reason, close_reason) service_close_reason, close_reason program_close_reason from neon.programs p
@@ -5052,29 +5723,32 @@ select distinct service_id, case when intake_date between p.program_start and p.
   left join (select participant_id, intake_date from neon.intake ) i using(participant_id)
   join stints.neon using(service_id)
 where p.program_type regexp "diversion|community navigation|violence prevention|chd"      
-'''
+"""
         df = self.query_run(query)
-        df['intake_date'] = np.where(df['intake_date'].notna(), True, False)
-        return(df)
+        df["intake_date"] = np.where(df["intake_date"].notna(), True, False)
+        return df
 
-
-
-    def cm_enrolled(self, partial_session_threshold=5, full_session_threshold=10, declined_days_enrolled=31):
-        '''
+    def cm_enrolled(
+        self,
+        partial_session_threshold=5,
+        full_session_threshold=10,
+        declined_days_enrolled=31,
+    ):
+        """
         Returns table of case management enrollment statuses
-        Parameters: 
+        Parameters:
             partial_session_threshold: # of successful sessions to meet the criteria for partial service engagement. Defaults to 5
             full_session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 10
             declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 31
-        '''
+        """
 
         # unoriginal theory: CM enrollment can be determined using two(ish) dimensions
         # 1. unique days with a successful case session
         # 2. unique days spent completing assessments (including ISPs)
 
-        # For every CM record, we should count the number of occurances at any point in time (between session start& end dates) and during 2025. 
+        # For every CM record, we should count the number of occurances at any point in time (between session start& end dates) and during 2025.
         # (these become columns session_total, session_25, activity_total, activity_25 in the final cm_services table)
-        # We can also throw in the length of time enrolled in the service, where ongoing services are given the t2 of the current date (this is to avoid classifying records that began late in the year as declined services). 
+        # We can also throw in the length of time enrolled in the service, where ongoing services are given the t2 of the current date (this is to avoid classifying records that began late in the year as declined services).
 
         # Then, we classify service records according to the following criteria:
         # (note: I created an "Aftercare" category to distinguish between clients with low CM involvement in 2025 but more extensive casework earlier on from those who never fully enrolled)
@@ -5086,13 +5760,11 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
 
         # Initial groupings can be found in the coded_service_status column
 
-
-        # To catch any irregularities, I also included a column of the corresponding service unenrollment reasons in the table. 
+        # To catch any irregularities, I also included a column of the corresponding service unenrollment reasons in the table.
         # Then, I created a column final_status, which looked for any rows with a coded status that didn't match an official non-responsive/declined reason, and updated their values accordingly
         # (ie: I classified a service as in aftercare while case management said it was non-responsive -> final_status = non-responsive)
 
-
-        query = f'''
+        query = f"""
     with part as (select distinct participant_id, service_id, service_start, 
     coalesce(service_end, program_end) service_end from {self.table} where service_type = 'case management' and 
         program_type regexp "diversion|community navigation|violence prevention|chd"),
@@ -5151,20 +5823,26 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
     from big_table
     join (select service_id, coalesce(close_reason, program_close_reason) close_reason, program_close_reason from neon.services
     join (select program_id, close_reason program_close_reason from neon.programs) p using(program_id)) s using(service_id)) pp
-    '''
+    """
 
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def outreach_enrolled(self, partial_session_threshold=5, full_session_threshold=10, declined_days_enrolled=31, incarceration_enrollment_pct=.5):
-        '''
+    def outreach_enrolled(
+        self,
+        partial_session_threshold=5,
+        full_session_threshold=10,
+        declined_days_enrolled=31,
+        incarceration_enrollment_pct=0.5,
+    ):
+        """
         Returns table of outreach enrollment statuses
-        Parameters: 
+        Parameters:
             partial_session_threshold: # of successful sessions to meet the criteria for partial service engagement. Defaults to 5
             full_session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 10
             declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 31
             incarceration_enrollment_pct: decimal of time client spent in custody to be considered "enrolled enough (incarcerated)". Defaults to .5
-        '''
+        """
 
         # Outreach ends up being quite similar to case management, with a few tweaks along the way
 
@@ -5172,7 +5850,7 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
         # 1. unique days with a successful case session --> unique days with a case session attempt (does a better job distinguishing clients in a service with generally lower response rates, though it's easy to reverse this)
         # 2. unique days spent completing assessments (including ISPs) --> unique combinations of assessment type/completion dates (to distinguish between clients who only got an eligibility screening and those who got an eligibility screening + safety plan/assessment on the same day)
 
-        # I also added a column pct_incarcerated, which calculated the proportion of service time a client spent in custody. More on this later. 
+        # I also added a column pct_incarcerated, which calculated the proportion of service time a client spent in custody. More on this later.
         # I added two new categories to my classification scheme:
         # * Enrolled Enough -- records that I'd filter out of case management, but don't feel great about making a decision on for outreach
         # * Enrolled Enough (Incarcerated) -- same situation as above, though the corresponding clients spent at least half of the time enrolled in custody
@@ -5187,8 +5865,8 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
         # 7. Declined Services: less than a month spent enrolled
 
         # Like case management, I also merged initial classifications with closure reasons to create a final_status column
-        
-        query = f'''
+
+        query = f"""
         with part as (select distinct participant_id, service_id, service_start, 
         coalesce(service_end, program_end) service_end from stints.neon where service_type = 'outreach' and program_type regexp "diversion|community navigation|violence prevention|chd"),
 
@@ -5261,12 +5939,18 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
         else 'FIGURE IT OUT ELI'
         end coded_service_status
         from big_table) b
-        '''
+        """
         df = self.query_run(query)
-        return(df)
-    
-    def legal_enrolled(self, partial_session_threshold=5, full_session_threshold=10, declined_days_enrolled=45, new_client_threshold=60):
-        '''
+        return df
+
+    def legal_enrolled(
+        self,
+        partial_session_threshold=5,
+        full_session_threshold=10,
+        declined_days_enrolled=45,
+        new_client_threshold=60,
+    ):
+        """
         Returns table for legal enrollment statuses
 
         Parameters:
@@ -5274,7 +5958,7 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
             full_session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 10
             declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 45
             new_client_threshold: # of days client was enrolled at t2 to be considered "new" (and subject to lower session thresholds). defaults to 60
-        '''
+        """
 
         # theory: legal enrollment can be determined w 3 factors:
         # 1. total time entries
@@ -5300,7 +5984,7 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
         # 4. Inactive in 2025: (Scores of -1 & no time entries in 2025) OR latest_entry < '2025-01-01' OR (sessions_2025_count =0 and latest_entry > '2025-12-31')
         # 5. Declined Services: Scores of -2 & 0 time entries ever
 
-        query = f'''
+        query = f"""
         with leg as (select participant_id, 'Legal' as service_type,max(entry_date) latest_entry, count(distinct entry_date) sessions_total,
         count(distinct case when entry_date between {self.q_t1} and {self.q_t2} then entry_date else null end) sessions_2025
         from
@@ -5362,19 +6046,19 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
         ) ll 
         join (select service_id, coalesce(close_reason, program_close_reason) close_reason, program_close_reason from neon.services
         join (select program_id, close_reason program_close_reason from neon.programs) p using(program_id)) s using(service_id)
-        '''
+        """
 
         df = self.query_run(query)
-        return(df)
-    
+        return df
+
     def other_services_enrolled(self, session_threshold=3, declined_days_enrolled=31):
-        '''
+        """
         Returns table of enrollment statuses for Civic Engagement, Therapy, and Victim Services
-        Parameters: 
+        Parameters:
             session_threshold: # of successful sessions to be considered "enrolled" at one point in time (either active in period, or in aftercare). Defaults to 3
             declined_days_enrolled: # of days the service closed within to be deemed "declined services". Defaults to 31
-        '''
-        # These fellas were relatively straightforward -- the only way to assess service health is by the number of sessions. 
+        """
+        # These fellas were relatively straightforward -- the only way to assess service health is by the number of sessions.
 
         # My classifications were as follows:
         # 1. Enrolled: 1+ session in 2025
@@ -5382,7 +6066,7 @@ where p.program_type regexp "diversion|community navigation|violence prevention|
         # 3. Non-Responsive to Services: enrolled for over a month but with <3 sessions ever recorded
         # 4. Declined Services: enrolled for under a month or 0 sessions ever recorded
 
-        query = f'''
+        query = f"""
 with civ as (select participant_id, 'Civic Engagement', max(attendance_date), count(distinct attendance_date) sessions_total, 
   count(distinct case when attendance_date between {self.q_t1} and {self.q_t2} then attendance_date else null end) sessions_2025 
   from neon.activities_attendance
@@ -5436,69 +6120,85 @@ select *,
   when sessions_2025 = 0 then 'Inactive in {self.date_label}'
   else 'Enrolled' end coded_service_status
   from big_table) b
-'''
+"""
         df = self.query_run(query)
-        return(df)
+        return df
 
-    def create_big_service_table(self,
-        received_service_statuses = {
-        'Legal': ['Enrolled','Aftercare'],
-        'Case Management': ['Enrolled', 'Aftercare'],
-        'Outreach': ['Enrolled', 'Enrolled Enough', 'Enrolled Enough (Incarcerated)', 'Aftercare'],
-        'Civic Engagement': ['Enrolled'],
-        'Victim Services': ['Enrolled'],
-        'Therapy': ['Enrolled']},
-        parameter_dict = {}):
-
+    def create_big_service_table(
+        self,
+        received_service_statuses={
+            "Legal": ["Enrolled", "Aftercare"],
+            "Case Management": ["Enrolled", "Aftercare"],
+            "Outreach": [
+                "Enrolled",
+                "Enrolled Enough",
+                "Enrolled Enough (Incarcerated)",
+                "Aftercare",
+            ],
+            "Civic Engagement": ["Enrolled"],
+            "Victim Services": ["Enrolled"],
+            "Therapy": ["Enrolled"],
+        },
+        parameter_dict={},
+    ):
         """idk add something for non-default options here"""
-       
 
-        funcs = {'legal_enrolled':self.legal_enrolled,
-                'cm_enrolled':self.cm_enrolled,
-                'outreach_enrolled':self.outreach_enrolled,
-                'other_services_enrolled':self.other_services_enrolled}
-        
+        funcs = {
+            "legal_enrolled": self.legal_enrolled,
+            "cm_enrolled": self.cm_enrolled,
+            "outreach_enrolled": self.outreach_enrolled,
+            "other_services_enrolled": self.other_services_enrolled,
+        }
+
         ### get all funcs
         results = {}
         for func_name, func in funcs.items():
             kwargs = parameter_dict.get(func_name, {})
             results[func_name] = func(**kwargs)
-        
-        filtered_dfs = [df[['service_id','coded_service_status','final_status']] for df in results.values()]
-        all_statuses = pd.concat(filtered_dfs,ignore_index=True)
+
+        filtered_dfs = [
+            df[["service_id", "coded_service_status", "final_status"]]
+            for df in results.values()
+        ]
+        all_statuses = pd.concat(filtered_dfs, ignore_index=True)
 
         all_services = self.get_every_service()
 
-        all_service_statuses = pd.merge(all_services,all_statuses, on='service_id')
+        all_service_statuses = pd.merge(all_services, all_statuses, on="service_id")
 
-        all_service_statuses['service_received'] = all_service_statuses.apply(
-            lambda x: x['final_status'] in received_service_statuses.get(x['service_type'], []), 
-            axis=1)
-        
+        all_service_statuses["service_received"] = all_service_statuses.apply(
+            lambda x: x["final_status"]
+            in received_service_statuses.get(x["service_type"], []),
+            axis=1,
+        )
+
         self.all_service_statuses = all_service_statuses
 
         return all_service_statuses
 
     def add_closure_info(self):
-        if not hasattr(self, 'all_service_statuses'):
+        if not hasattr(self, "all_service_statuses"):
             self.create_big_service_table()
 
         close_reasons = self.get_intake_closure_info()
         all_services = self.all_service_statuses.copy()
 
-        close_df = pd.merge(all_services, close_reasons, on='service_id', how='inner')
+        close_df = pd.merge(all_services, close_reasons, on="service_id", how="inner")
 
-        # assign a score to each final status, depending 
-        close_df['final_status_score'] =close_df['final_status'].map({'Enrolled':7,
-            'Aftercare':6,
-            f'Inactive in {self.date_label}':5,
-            'Enrolled Enough (Incarcerated)':4,
-            'Enrolled Enough':3,
-            'Non-Responsive to Services':2,
-            'Declined Services':1})
+        # assign a score to each final status, depending
+        close_df["final_status_score"] = close_df["final_status"].map(
+            {
+                "Enrolled": 7,
+                "Aftercare": 6,
+                f"Inactive in {self.date_label}": 5,
+                "Enrolled Enough (Incarcerated)": 4,
+                "Enrolled Enough": 3,
+                "Non-Responsive to Services": 2,
+                "Declined Services": 1,
+            }
+        )
 
-
-        # next, let's group close_df by participant_id, and create columns for if the client received an intake, lists of program/service close reasons, and final_statuses. 
+        # next, let's group close_df by participant_id, and create columns for if the client received an intake, lists of program/service close reasons, and final_statuses.
         # Addiitonally, we'll throw in three columns based off of final_status_score:
         # * the minimum score across closed services
         # * the maximum score across closed services
@@ -5512,7 +6212,7 @@ select *,
         # * Non-Responsive to services: there may have been some successful service delivery (some case notes, assessments, court appearances), but things petered out prematurely
         # * Successfully completed program: everything else
 
-        # The gap between non-responsive and successfully completed [is real big]. Since my brain was breaking anyway, I figured it would be worthwhile to offer more cohesive definitions for the first two categories, and break the third into three distinct categories. 
+        # The gap between non-responsive and successfully completed [is real big]. Since my brain was breaking anyway, I figured it would be worthwhile to offer more cohesive definitions for the first two categories, and break the third into three distinct categories.
         # * Declined Services: once the client was admitted, they turned down LCLC. If they didn't turn down LCLC immediately (or it wasn't documented), then they did not reach an engagement threshold for any service, and they did not have an intake complete.
         #     - masking logic used: avg_service_score ==1 OR highest_status_score <=2 & had intake = False
         # * Non-Responsive to Services: the client was never fully engaged in a service offered. they partially engaged in one or more services, and typically had an intake complete
@@ -5523,41 +6223,89 @@ select *,
         #     - masking logic: all original service_close_reasons were "successfully completed", but at least one final_status was not indicative of an engaged service
         # * Fully Successfully Completed (name subject to change): All services were engaged with
         #     - masking logic used: lowest_service_score >= 5
-        
 
-        closure_types = ['participant', 'program']
+        closure_types = ["participant", "program"]
 
         for closure in closure_types:
-            close_reasons = close_df[close_df['closed_program']=='closed'].groupby([f'{closure}_id'],as_index=False).agg(
-                had_intake = ('intake_date', lambda x:  list(x.unique())[0]),
-                program_close_reason =('program_close_reason',lambda x: sorted(list(x.unique()), key=lambda v: (v is not None, str(v)))),
-                service_close_reason =('service_close_reason',lambda x: sorted(list(x.unique()), key=lambda v: (v is not None, str(v)))),
-                final_statuses = ('final_status',lambda x: sorted(list(x.unique()), key=lambda v: (v is not None, str(v)))),
-                lowest_status_score = ('final_status_score','min'),
-                highest_status_score = ('final_status_score','max'),
-                avg_status_score = ('final_status_score','mean'))
-            
-            #closure masks
-            declined_mask = (close_reasons['avg_status_score']==1) | ((close_reasons['highest_status_score']<=2) & (close_reasons['had_intake']==False))
-            partial_mask = (close_reasons['highest_status_score']>=5) & (close_reasons['avg_status_score']>=3)
-            mostly_succ_mask = (close_reasons['service_close_reason'].str.len() == 1) & (close_reasons['service_close_reason'].str[0] == 'Successfully Completed Program')
-            full_succ_mask = close_reasons['lowest_status_score']>=5
+            close_reasons = (
+                close_df[close_df["closed_program"] == "closed"]
+                .groupby([f"{closure}_id"], as_index=False)
+                .agg(
+                    had_intake=("intake_date", lambda x: list(x.unique())[0]),
+                    program_close_reason=(
+                        "program_close_reason",
+                        lambda x: sorted(
+                            list(x.unique()), key=lambda v: (v is not None, str(v))
+                        ),
+                    ),
+                    service_close_reason=(
+                        "service_close_reason",
+                        lambda x: sorted(
+                            list(x.unique()), key=lambda v: (v is not None, str(v))
+                        ),
+                    ),
+                    final_statuses=(
+                        "final_status",
+                        lambda x: sorted(
+                            list(x.unique()), key=lambda v: (v is not None, str(v))
+                        ),
+                    ),
+                    lowest_status_score=("final_status_score", "min"),
+                    highest_status_score=("final_status_score", "max"),
+                    avg_status_score=("final_status_score", "mean"),
+                )
+            )
 
-            choices = ['Fully Successfully Completed', 'Declined Services','Successfully Completed','Partially Completed']
+            # closure masks
+            declined_mask = (close_reasons["avg_status_score"] == 1) | (
+                (close_reasons["highest_status_score"] <= 2)
+                & (close_reasons["had_intake"] == False)
+            )
+            partial_mask = (close_reasons["highest_status_score"] >= 5) & (
+                close_reasons["avg_status_score"] >= 3
+            )
+            mostly_succ_mask = (
+                close_reasons["service_close_reason"].str.len() == 1
+            ) & (
+                close_reasons["service_close_reason"].str[0]
+                == "Successfully Completed Program"
+            )
+            full_succ_mask = close_reasons["lowest_status_score"] >= 5
 
-            close_reasons[f'{closure}_closure_type'] = np.select([full_succ_mask, declined_mask, mostly_succ_mask, partial_mask], choices, default='Non-Responsive to Services')
-            all_services = pd.merge(all_services, close_reasons[[f'{closure}_closure_type',f'{closure}_id']],how='left',on=f'{closure}_id')
-        
-        all_services = all_services.rename(columns ={'participant_closure_type':'closure_type'})
+            choices = [
+                "Fully Successfully Completed",
+                "Declined Services",
+                "Successfully Completed",
+                "Partially Completed",
+            ]
+
+            close_reasons[f"{closure}_closure_type"] = np.select(
+                [full_succ_mask, declined_mask, mostly_succ_mask, partial_mask],
+                choices,
+                default="Non-Responsive to Services",
+            )
+            all_services = pd.merge(
+                all_services,
+                close_reasons[[f"{closure}_closure_type", f"{closure}_id"]],
+                how="left",
+                on=f"{closure}_id",
+            )
+
+        all_services = all_services.rename(
+            columns={"participant_closure_type": "closure_type"}
+        )
         self.all_services_closures = all_services
         return all_services
 
-    def analyze_referrals(self, referral_file_path, 
-        jotform_response_tab = 'Jotform_Responses',
-        referral_tracker_tab = 'referral_tracker',
-        matched_ids_tab = 'matched_ids',
-        idiosyncracies_tab = 'enrollment_idiosyncracies'):
-        '''
+    def analyze_referrals(
+        self,
+        referral_file_path,
+        jotform_response_tab="Jotform_Responses",
+        referral_tracker_tab="referral_tracker",
+        matched_ids_tab="matched_ids",
+        idiosyncracies_tab="enrollment_idiosyncracies",
+    ):
+        """
         Processes a copy of the JotForm Referral spreadsheet (though it's a bit finnicky). If run before get_every_service, includes referral_pathway as a column in the eventual service df.
         Also saves self.referrals_abr as an object attribute if you'd like to analyze that further
 
@@ -5566,127 +6314,224 @@ select *,
             jotform_response tab: sheet name of the 'Jotform Responses' tab. defaults to Jotform_Responses
             referral_tracker_tab: sheet name of the 'referral_tracker' tab. defaults to 'referral_tracker'
             matched_ids_tab: sheet name of cleaned_ids tab, which is used to add any missing participant_ids and expects: first_name, last_name, Decision, and participant_id. defaults to 'matched_ids'
-            idiosyncracies_tab: sheet name of idiosyncracies tab, which 
+            idiosyncracies_tab: sheet name of idiosyncracies tab, which
 
-        '''
-        tracker = pd.read_excel(referral_file_path, sheet_name=referral_tracker_tab,header=1).dropna(subset="Client_name")
+        """
+        tracker = pd.read_excel(
+            referral_file_path, sheet_name=referral_tracker_tab, header=1
+        ).dropna(subset="Client_name")
         responses = pd.read_excel(referral_file_path, sheet_name=jotform_response_tab)
 
         # merge the two sheets, rename a few columns, then filter out submissions that were processed outside of 2025.
         # I kept the last 10 days of 2024 referrals in this range, but it didn't end up mattering
 
-        referral_merge = pd.merge(tracker, responses, how='right', right_on='Submission Edit URL', left_on='Submission Key').dropna(subset='Client_name')
-        referral_merge = referral_merge.rename(columns={'Full name of individual being referred - First Name':'first_name','Full name of individual being referred - Last Name':'last_name',"What is the individual's date of birth?":'birth_date'})
-        referral_merge['Decision date'] = pd.to_datetime(referral_merge['Decision date'])
+        referral_merge = pd.merge(
+            tracker,
+            responses,
+            how="right",
+            right_on="Submission Edit URL",
+            left_on="Submission Key",
+        ).dropna(subset="Client_name")
+        referral_merge = referral_merge.rename(
+            columns={
+                "Full name of individual being referred - First Name": "first_name",
+                "Full name of individual being referred - Last Name": "last_name",
+                "What is the individual's date of birth?": "birth_date",
+            }
+        )
+        referral_merge["Decision date"] = pd.to_datetime(
+            referral_merge["Decision date"]
+        )
 
-        decision_date_start = (pd.to_datetime(self.t1) - pd.Timedelta(days=10)).strftime('%Y-%m-%d')
-        referral_merge = referral_merge[(referral_merge['Decision date'] >= decision_date_start) & (referral_merge['Decision date'] <= self.t2)]
+        decision_date_start = (
+            pd.to_datetime(self.t1) - pd.Timedelta(days=10)
+        ).strftime("%Y-%m-%d")
+        referral_merge = referral_merge[
+            (referral_merge["Decision date"] >= decision_date_start)
+            & (referral_merge["Decision date"] <= self.t2)
+        ]
 
         ## some basic info from neon
-        neon_df = self.query_run(f'''select distinct participant_id, first_name, last_name, birth_date from neon.basic_info join (select distinct(participant_id) from stints.neon) n using(participant_id)''')
-        neon_df['birth_date']=pd.to_datetime(neon_df['birth_date'])
+        neon_df = self.query_run(
+            f"""select distinct participant_id, first_name, last_name, birth_date from neon.basic_info join (select distinct(participant_id) from stints.neon) n using(participant_id)"""
+        )
+        neon_df["birth_date"] = pd.to_datetime(neon_df["birth_date"])
 
         try:
-            cleaned_ids = pd.read_excel(referral_file_path,sheet_name=matched_ids_tab)
+            cleaned_ids = pd.read_excel(referral_file_path, sheet_name=matched_ids_tab)
         except Exception as E:
-            print('you need match some IDs to referrals manually. copy-paste the table below into a new spreadsheet tab, poke around for any IDs that might be missing, then rerun this function')
-            return pd.merge(referral_merge[['first_name','last_name','birth_date','Decision']],neon_df, how='left',on=['first_name','last_name','birth_date']).to_clipboard()
+            print(
+                "you need match some IDs to referrals manually. copy-paste the table below into a new spreadsheet tab, poke around for any IDs that might be missing, then rerun this function"
+            )
+            return pd.merge(
+                referral_merge[["first_name", "last_name", "birth_date", "Decision"]],
+                neon_df,
+                how="left",
+                on=["first_name", "last_name", "birth_date"],
+            ).to_clipboard()
 
-        referral_merge = pd.merge(referral_merge, cleaned_ids, how='left', on=['first_name','last_name','birth_date','Decision'])
-        
+        referral_merge = pd.merge(
+            referral_merge,
+            cleaned_ids,
+            how="left",
+            on=["first_name", "last_name", "birth_date", "Decision"],
+        )
+
         # get the earliest date a client enrolled in an LCLC service. I added a descriptive column in SQL to avoid datetime conversion
-        first_start = self.query_run(f'''select participant_id, stint_start, case when stint_start < {self.q_t1} then 'Reopened Client'
+        first_start = self.query_run(
+            f"""select participant_id, stint_start, case when stint_start < {self.q_t1} then 'Reopened Client'
             when stint_start between {self.q_t1} and {self.q_t2} then 'New Client'
             else 'After {self.date_label}' end first_enrolled
-            from stints.stints_plus_stint_count where stint_num = 1''')
-        
-        referral_merge = pd.merge(referral_merge, first_start, how='left', on='participant_id')
-        referral_merge['first_enrolled'] = referral_merge['first_enrolled'].fillna('Never Enrolled')
-        
-        #exclude post 2025 clients from total
-        referral_merge = referral_merge[~referral_merge['first_enrolled'].isin(['After 2025'])]
+            from stints.stints_plus_stint_count where stint_num = 1"""
+        )
+
+        referral_merge = pd.merge(
+            referral_merge, first_start, how="left", on="participant_id"
+        )
+        referral_merge["first_enrolled"] = referral_merge["first_enrolled"].fillna(
+            "Never Enrolled"
+        )
+
+        # exclude post 2025 clients from total
+        referral_merge = referral_merge[
+            ~referral_merge["first_enrolled"].isin(["After 2025"])
+        ]
 
         ## oops there were a handful of duplicate submissions for clients, add a unique identifier column by combining DOB and last name
-        referral_merge['entry_id'] = referral_merge['last_name']+referral_merge['birth_date'].dt.strftime("%Y%m%d")
-        
+        referral_merge["entry_id"] = referral_merge["last_name"] + referral_merge[
+            "birth_date"
+        ].dt.strftime("%Y%m%d")
+
         try:
-            idio = pd.read_excel(referral_file_path,sheet_name=idiosyncracies_tab)
+            idio = pd.read_excel(referral_file_path, sheet_name=idiosyncracies_tab)
         except Exception as E:
-            print(f'you need to add a table of idiosyncracies (participant_id, merge, {self.date_label}_program, comments). paste the returned table in a new tab, clean it up, then use the set idiosyncracies_tab to the new sheet name')
-            return pd.merge(referral_merge[['first_name','last_name','birth_date','Decision']],neon_df, how='left',on=['first_name','last_name','birth_date']).to_clipboard()
+            print(
+                f"you need to add a table of idiosyncracies (participant_id, merge, {self.date_label}_program, comments). paste the returned table in a new tab, clean it up, then use the set idiosyncracies_tab to the new sheet name"
+            )
+            return pd.merge(
+                referral_merge[["first_name", "last_name", "birth_date", "Decision"]],
+                neon_df,
+                how="left",
+                on=["first_name", "last_name", "birth_date"],
+            ).to_clipboard()
 
-
-
-        latest_program_start = self.query_run(f'''select participant_id, program_type, 
+        latest_program_start = self.query_run(f"""select participant_id, program_type, 
         case when program_start < {self.q_t1} then 'Before {self.date_label}'
         when program_start between {self.q_t1} and {self.q_t2} then 'During {self.date_label}'
         else null end program_start
         from
         (select participant_id, program_type, max(program_start) program_start
         from stints.neon
-        group by participant_id, program_type) s''')
+        group by participant_id, program_type) s""")
         try:
-            idio= pd.merge(idio, latest_program_start, how='left', left_on=['participant_id',f'{self.date_label}_program'], right_on=['participant_id','program_type'])
+            idio = pd.merge(
+                idio,
+                latest_program_start,
+                how="left",
+                left_on=["participant_id", f"{self.date_label}_program"],
+                right_on=["participant_id", "program_type"],
+            )
         except KeyError as E:
             return f"update the idiosyncracies tab's third column to be {self.date_label}_program"
-        
-        referrals_abr = referral_merge[['Submission Key', 'Client_name',
-       'Past client - Have we previously provided legal representation for the client?',
-       'Age - Is the client 24 or younger?',
-       'Neighborhood - What neighborhood does the client live in?',
-       'Class - What is the type of the most serious charge the client is facing?',
-       "RCT - Was the client randomized out from the RCT within 2 years of today's date?",
-       'Eligibility', 'Decision', 'Decision date', 'Decision reason','Submission ID', 'entry_id','participant_id', 'stint_start', 'first_enrolled']]
-       
+
+        referrals_abr = referral_merge[
+            [
+                "Submission Key",
+                "Client_name",
+                "Past client - Have we previously provided legal representation for the client?",
+                "Age - Is the client 24 or younger?",
+                "Neighborhood - What neighborhood does the client live in?",
+                "Class - What is the type of the most serious charge the client is facing?",
+                "RCT - Was the client randomized out from the RCT within 2 years of today's date?",
+                "Eligibility",
+                "Decision",
+                "Decision date",
+                "Decision reason",
+                "Submission ID",
+                "entry_id",
+                "participant_id",
+                "stint_start",
+                "first_enrolled",
+            ]
+        ]
+
         # outer merge the cleaned idiosincracy table and the referral table to get info on all referrals + neon enrollments
-        referrals_abr = pd.merge(referrals_abr, idio[['participant_id','2025_program', 'program_start']], how='outer', on='participant_id')
-        
+        referrals_abr = pd.merge(
+            referrals_abr,
+            idio[["participant_id", "2025_program", "program_start"]],
+            how="outer",
+            on="participant_id",
+        )
+
         # fill N/A values for the neon-only clients
-        referrals_abr['Decision'] = referrals_abr['Decision'].fillna('Internal Referral')
-        referrals_abr['entry_id'] = referrals_abr['entry_id'].fillna(referrals_abr['participant_id'])
-        referrals_abr['first_enrolled'] = referrals_abr['first_enrolled'].fillna(referrals_abr['participant_id'].map(first_start.set_index('participant_id')['first_enrolled']))
-        referrals_abr.loc[referrals_abr['2025_program']=='Not Reenrolled', 'first_enrolled'] = 'Never Reenrolled'
+        referrals_abr["Decision"] = referrals_abr["Decision"].fillna(
+            "Internal Referral"
+        )
+        referrals_abr["entry_id"] = referrals_abr["entry_id"].fillna(
+            referrals_abr["participant_id"]
+        )
+        referrals_abr["first_enrolled"] = referrals_abr["first_enrolled"].fillna(
+            referrals_abr["participant_id"].map(
+                first_start.set_index("participant_id")["first_enrolled"]
+            )
+        )
+        referrals_abr.loc[
+            referrals_abr["2025_program"] == "Not Reenrolled", "first_enrolled"
+        ] = "Never Reenrolled"
 
         self.referral_df = referrals_abr
         return referrals_abr
 
     def push_to_mysql(self):
         from sqlalchemy.types import Integer, String, Date
-        if not hasattr(self, 'all_services_closures'):
-            self.add_closure_info()
-        
-        demographic_info = self.query_run('''select participant_id, first_name, last_name, gender, race, age, birth_date, language_primary from neon.basic_info b''')
-        proto_stint = pd.merge(self.all_services_closures, demographic_info, how='left',on='participant_id')
-        proto_stint = proto_stint[proto_stint['service_received']==True]
-        base_schema = {'participant_id':Integer(), 
-        'first_name':String(50),
-        'last_name':String(50),
-        'program_type':String(25), 
-        'program_id': Integer(), 
-        'program_start': Date(),
-        'program_end': Date(), 
-        'service_type': String(25), 
-        'service_id': Integer(), 
-        'service_start':Date(),
-        'service_end':Date(), 
-        'referral_pathway': String(25),
-        'new_stint': String(25),
-        'final_status': String(50), 
-        'closure_type': String(50),
-        'program_closure_type':String(50),
-        'gender': String(25),
-        'race': String(45),
-        'age': Integer(),
-        'birth_date': Date(),
-        'language_primary': String(30)}
 
-        schema = {k:v for k, v in base_schema.items() if k in proto_stint.columns}
+        if not hasattr(self, "all_services_closures"):
+            self.add_closure_info()
+
+        demographic_info = self.query_run(
+            """select participant_id, first_name, last_name, gender, race, age, birth_date, language_primary from neon.basic_info b"""
+        )
+        proto_stint = pd.merge(
+            self.all_services_closures,
+            demographic_info,
+            how="left",
+            on="participant_id",
+        )
+        proto_stint = proto_stint[proto_stint["service_received"] == True]
+        base_schema = {
+            "participant_id": Integer(),
+            "first_name": String(50),
+            "last_name": String(50),
+            "program_type": String(25),
+            "program_id": Integer(),
+            "program_start": Date(),
+            "program_end": Date(),
+            "service_type": String(25),
+            "service_id": Integer(),
+            "service_start": Date(),
+            "service_end": Date(),
+            "referral_pathway": String(25),
+            "new_stint": String(25),
+            "final_status": String(50),
+            "closure_type": String(50),
+            "program_closure_type": String(50),
+            "gender": String(25),
+            "race": String(45),
+            "age": Integer(),
+            "birth_date": Date(),
+            "language_primary": String(30),
+        }
+
+        schema = {k: v for k, v in base_schema.items() if k in proto_stint.columns}
 
         proto_stint = proto_stint[list(schema.keys())]
-        table_label = self.date_label.replace(' ','_')
+        table_label = self.date_label.replace(" ", "_")
 
-        proto_stint.to_sql(f'{table_label}_filtered',schema='participants',con=self.engine, if_exists='replace',dtype=schema, index=False)
-
-
-
-
+        proto_stint.to_sql(
+            f"{table_label}_filtered",
+            schema="participants",
+            con=self.engine,
+            if_exists="replace",
+            dtype=schema,
+            index=False,
+        )
